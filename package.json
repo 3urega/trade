@@ -1,0 +1,28 @@
+{
+  "name": "crypto-trading-simulator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Simulador de trading crypto con backtesting y analisis de mercado",
+  "scripts": {
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "dev:backend": "pnpm --filter backend run start:dev",
+    "dev:frontend": "pnpm --filter frontend run dev",
+    "dev": "pnpm run docker:up && concurrently \"pnpm:dev:backend\" \"pnpm:dev:frontend\"",
+    "build:backend": "pnpm --filter backend run build",
+    "build:frontend": "pnpm --filter frontend run build",
+    "build": "pnpm run build:backend && pnpm run build:frontend",
+    "migration:run": "pnpm --filter backend run migration:run",
+    "migration:revert": "pnpm --filter backend run migration:revert",
+    "lint": "pnpm -r run lint"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "packageManager": "pnpm@10.30.3",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

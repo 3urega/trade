@@ -1,0 +1,9 @@
+packages:
+  - "backend"
+  - "frontend"
+
+approvedBuilds:
+  - "@nestjs/core"
+  - "@scarf/scarf"
+  - "unrs-resolver"
+  - "esbuild"
