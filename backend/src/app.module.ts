@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TradingModule } from './modules/trading/trading.module.js';
+import { ResearchModule } from './modules/research/research.module.js';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { TradingModule } from './modules/trading/trading.module.js';
 
     EventEmitterModule.forRoot({ wildcard: true }),
     TradingModule,
+    ResearchModule,
 
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],

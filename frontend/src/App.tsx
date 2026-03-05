@@ -2,9 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { PortfolioPanel } from './components/PortfolioPanel.tsx';
 import { PriceChart } from './components/PriceChart.tsx';
 import { TradeList } from './components/TradeList.tsx';
+import { ResearchPage } from './components/research/ResearchPage.tsx';
 import { fetchTrades, fetchPortfolio } from './services/api.ts';
 import { onTradeExecuted, onPortfolioUpdate } from './services/socket.ts';
 import type { Trade, Portfolio } from './types/index.ts';
+
+type AppSection = 'trading' | 'research';
 
 const SIMULATION_WALLET_ID_KEY = 'sim_wallet_id';
 
@@ -17,6 +20,7 @@ export default function App() {
   const [walletId, setWalletId] = useState<string | null>(null);
   const [selectedPair, setSelectedPair] = useState('SOL/USDT');
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
+  const [section, setSection] = useState<AppSection>('trading');
 
   const loadData = useCallback(async (wid: string) => {
     try {
@@ -95,9 +99,30 @@ export default function App() {
     <div className="min-h-screen bg-gray-950 flex flex-col">
       {/* Header */}
       <header className="border-b border-gray-800 px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           <span className="text-lg font-bold text-cyan-400">⬡ CryptoSim</span>
-          <span className="text-xs text-gray-600">Paper Trading Simulator</span>
+          <nav className="flex items-center gap-1">
+            <button
+              onClick={() => setSection('trading')}
+              className={`text-xs px-3 py-1 rounded transition-colors ${
+                section === 'trading'
+                  ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                  : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              Trading
+            </button>
+            <button
+              onClick={() => setSection('research')}
+              className={`text-xs px-3 py-1 rounded transition-colors ${
+                section === 'research'
+                  ? 'bg-violet-500/20 text-violet-400 border border-violet-500/40'
+                  : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              Research
+            </button>
+          </nav>
         </div>
         <div className="flex items-center gap-2 text-xs text-gray-500">
           <span className={`w-2 h-2 rounded-full ${statusDot[wsStatus]}`} />
@@ -105,7 +130,9 @@ export default function App() {
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
+      {section === 'research' && <ResearchPage />}
+
+      <div className={`flex flex-1 overflow-hidden ${section !== 'trading' ? 'hidden' : ''}`}>
         {/* Sidebar */}
         <aside className="w-72 border-r border-gray-800 p-4 flex flex-col gap-4 overflow-y-auto">
           <div>

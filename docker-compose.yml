@@ -30,6 +30,18 @@ services:
       postgres:
         condition: service_healthy
 
+  ml-engine:
+    build: ./ml-engine
+    container_name: crypto_simulator_ml
+    restart: unless-stopped
+    ports:
+      - "${ML_ENGINE_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
 volumes:
   pgdata:
     driver: local
