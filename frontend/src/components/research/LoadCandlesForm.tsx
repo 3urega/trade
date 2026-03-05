@@ -4,7 +4,11 @@ import type { LoadCandlesResult, Timeframe } from '../../types/index.ts';
 
 const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d'];
 
-export function LoadCandlesForm() {
+interface Props {
+  onSuccess?: () => void;
+}
+
+export function LoadCandlesForm({ onSuccess }: Props) {
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [timeframe, setTimeframe] = useState<Timeframe>('1h');
   const [from, setFrom] = useState('2024-01-01');
@@ -26,6 +30,7 @@ export function LoadCandlesForm() {
         to: new Date(to).toISOString(),
       });
       setResult(res);
+      onSuccess?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {

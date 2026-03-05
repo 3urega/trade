@@ -6,8 +6,6 @@ interface PredictionRecordProps {
   timestamp: Date;
   predicted: number;
   actual: number;
-  absoluteError: number;
-  squaredError: number;
   directionCorrect: boolean;
 }
 
@@ -21,13 +19,11 @@ export class PredictionRecord extends Entity<PredictionRecordProps> {
     timestamp: Date,
     predicted: number,
     actual: number,
-    absoluteError: number,
-    squaredError: number,
     directionCorrect: boolean,
     id?: UniqueEntityId,
   ): PredictionRecord {
     return new PredictionRecord(
-      { sessionId, timestamp, predicted, actual, absoluteError, squaredError, directionCorrect },
+      { sessionId, timestamp, predicted, actual, directionCorrect },
       id,
     );
   }
@@ -40,7 +36,7 @@ export class PredictionRecord extends Entity<PredictionRecordProps> {
   get timestamp(): Date { return this.props.timestamp; }
   get predicted(): number { return this.props.predicted; }
   get actual(): number { return this.props.actual; }
-  get absoluteError(): number { return this.props.absoluteError; }
-  get squaredError(): number { return this.props.squaredError; }
+  // Derived on the fly — not persisted
+  get absoluteError(): number { return Math.abs(this.props.predicted - this.props.actual); }
   get directionCorrect(): boolean { return this.props.directionCorrect; }
 }

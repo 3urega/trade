@@ -1,4 +1,4 @@
-import type { Trade, Portfolio, BacktestSession, LoadCandlesResult, Timeframe, ModelType } from '../types/index.ts';
+import type { Trade, Portfolio, BacktestSession, LoadCandlesResult, CandleDatasetSummary, CandleData, Timeframe, ModelType } from '../types/index.ts';
 
 const BASE = '/v1';
 
@@ -86,4 +86,26 @@ export async function fetchBacktest(id: string, withPredictions = false): Promis
   const res = await fetch(`${BASE}/research/backtest/${id}?predictions=${withPredictions}`);
   if (!res.ok) throw new Error('Failed to fetch backtest');
   return res.json() as Promise<BacktestSession>;
+}
+
+export async function fetchCandleSummary(): Promise<CandleDatasetSummary[]> {
+  const res = await fetch(`${BASE}/research/candles/summary`);
+  if (!res.ok) throw new Error('Failed to fetch candle summary');
+  return res.json() as Promise<CandleDatasetSummary[]>;
+}
+
+export async function fetchCandles(
+  symbol: string,
+  timeframe: Timeframe,
+  from?: string,
+  to?: string,
+  limit?: number,
+): Promise<CandleData[]> {
+  const params = new URLSearchParams({ symbol, timeframe });
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  if (limit) params.set('limit', String(limit));
+  const res = await fetch(`${BASE}/research/candles?${params}`);
+  if (!res.ok) throw new Error('Failed to fetch candles');
+  return res.json() as Promise<CandleData[]>;
 }

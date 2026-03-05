@@ -76,3 +76,20 @@ export interface LoadCandlesResult {
   to: string;
   loaded: number;
 }
+
+export interface CandleDatasetSummary {
+  symbol: string;
+  timeframe: string;
+  start: string;
+  end: string;
+  count: number;
+}
+
+export interface CandleData {
+  openTime: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}

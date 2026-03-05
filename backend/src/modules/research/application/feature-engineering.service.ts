@@ -8,11 +8,11 @@ export class FeatureEngineeringService {
    * Build a FeatureVector for the candle at `index` using the full candle array.
    * Requires at least `index >= 5` for all features to be valid.
    *
-   * Features (all normalised to reduce scale sensitivity):
-   *   0: close / 1000          (normalised price)
+   * Features (all bounded / relative to avoid scale sensitivity):
+   *   0: (high - low) / close       — relative candle range (body+wick size)
    *   1: log return vs prev candle
    *   2: log return vs 5 candles back
-   *   3: rolling std of last 5 closes / close   (relative volatility)
+   *   3: rolling std of last 5 log-returns (local volatility, already small-scale)
    *   4: volume normalised by max volume in last 5 candles
    */
   build(candles: Candle[], index: number): FeatureVector {
@@ -24,25 +24,29 @@ export class FeatureEngineeringService {
     const prev1 = candles[index - 1];
     const prev5 = candles[index - 5];
 
-    const normClose = current.close / 1000;
+    // Relative candle range — always in [0, ~0.1] for normal markets
+    const relativeRange = (current.high - current.low) / (current.close || 1);
 
     const logReturn1 = Math.log(current.close / prev1.close);
     const logReturn5 = Math.log(current.close / prev5.close);
 
-    const lastFiveCloses = candles.slice(index - 4, index + 1).map((c) => c.close);
-    const mean = lastFiveCloses.reduce((a, b) => a + b, 0) / lastFiveCloses.length;
-    const variance = lastFiveCloses.reduce((sum, c) => sum + Math.pow(c - mean, 2), 0) / lastFiveCloses.length;
-    const relativeVolatility = Math.sqrt(variance) / (current.close || 1);
+    // Volatility as std of last 5 log-returns (already small numbers)
+    const logReturns = candles
+      .slice(index - 4, index + 1)
+      .map((c, j, arr) => (j === 0 ? 0 : Math.log(c.close / arr[j - 1].close)));
+    const meanLR = logReturns.reduce((a, b) => a + b, 0) / logReturns.length;
+    const varianceLR = logReturns.reduce((s, r) => s + Math.pow(r - meanLR, 2), 0) / logReturns.length;
+    const localVolatility = Math.sqrt(varianceLR);
 
     const lastFiveVolumes = candles.slice(index - 4, index + 1).map((c) => c.volume);
     const maxVolume = Math.max(...lastFiveVolumes);
     const normVolume = maxVolume > 0 ? current.volume / maxVolume : 0;
 
     return FeatureVector.create([
-      normClose,
+      relativeRange,
       logReturn1,
       logReturn5,
-      relativeVolatility,
+      localVolatility,
       normVolume,
     ]);
   }

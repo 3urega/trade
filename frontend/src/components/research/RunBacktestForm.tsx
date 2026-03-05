@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { runBacktest } from '../../services/api.ts';
 import type { BacktestSession, Timeframe, ModelType } from '../../types/index.ts';
 
@@ -10,13 +10,23 @@ const MODELS: { value: ModelType; label: string }[] = [
 
 interface Props {
   onCompleted: (session: BacktestSession) => void;
+  prefilledFrom?: string;
+  prefilledTo?: string;
 }
 
-export function RunBacktestForm({ onCompleted }: Props) {
+export function RunBacktestForm({ onCompleted, prefilledFrom, prefilledTo }: Props) {
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [timeframe, setTimeframe] = useState<Timeframe>('1h');
   const [from, setFrom] = useState('2024-01-01');
   const [to, setTo] = useState('2024-03-01');
+
+  useEffect(() => {
+    if (prefilledFrom) setFrom(prefilledFrom);
+  }, [prefilledFrom]);
+
+  useEffect(() => {
+    if (prefilledTo) setTo(prefilledTo);
+  }, [prefilledTo]);
   const [modelType, setModelType] = useState<ModelType>('sgd_regressor');
   const [warmupPeriod, setWarmupPeriod] = useState(20);
   const [running, setRunning] = useState(false);
@@ -45,9 +55,16 @@ export function RunBacktestForm({ onCompleted }: Props) {
 
   return (
     <div className="bg-gray-900 rounded-lg p-5 border border-gray-800">
-      <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">
-        Run Backtest
-      </h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+          Run Backtest
+        </h3>
+        {prefilledFrom && prefilledTo && (
+          <span className="text-xs bg-green-900/30 border border-green-700/40 text-green-400 px-2 py-0.5 rounded">
+            Range from chart
+          </span>
+        )}
+      </div>
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>

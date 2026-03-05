@@ -32,9 +32,9 @@ export class RunBacktestUseCase {
 
     const candles = await this.candleRepo.findBySymbolAndRange(dto.symbol, from, to, dto.timeframe);
 
-    if (candles.length < dto.warmupPeriod + 5 + 1) {
+    if (candles.length < dto.warmupPeriod + 5 + 2) {
       throw new BadRequestException(
-        `Not enough candles for backtest. Found ${candles.length}, need at least ${dto.warmupPeriod + 6}. Load more data first.`,
+        `Not enough candles for backtest. Found ${candles.length}, need at least ${dto.warmupPeriod + 7}. Load more data first.`,
       );
     }
 
@@ -56,36 +56,44 @@ export class RunBacktestUseCase {
       await this.mlService.initialize(dto.modelType);
 
       const predictionRecords: PredictionRecord[] = [];
-      // Features need index >= 5; start loop from warmupPeriod or 5, whichever is greater
+      // Need index >= 5 for features; also need i+1 to exist for log-return target
       const startIndex = Math.max(dto.warmupPeriod, 5);
 
       for (let i = startIndex; i < candles.length - 1; i++) {
         const featureVec = this.features.build(candles, i);
-        const target = candles[i].close;
-        const nextClose = candles[i + 1].close;
-        const previousClose = candles[i - 1].close;
 
-        await this.mlService.partialTrain(featureVec, target);
+        // Target: log-return from candle[i] to candle[i+1]
+        // Small values in [-0.05, 0.05] range — safe for online learning
+        const logReturnTarget = Math.log(candles[i + 1].close / candles[i].close);
 
-        let prediction: number;
+        // Train on current candle: features(i) -> logReturn(i -> i+1)
+        await this.mlService.partialTrain(featureVec, logReturnTarget);
+
+        // Predict the log-return for the *next* step (i+1 -> i+2) if available
+        if (i + 2 >= candles.length) continue;
+
+        let predictedLogReturn: number;
         try {
-          prediction = await this.mlService.predict(featureVec);
+          const featureVecNext = this.features.build(candles, i + 1);
+          predictedLogReturn = await this.mlService.predict(featureVecNext);
         } catch {
-          // Model needs at least one fit; skip first iteration if not ready
           continue;
         }
 
-        const error = PredictionError.from(prediction, nextClose, previousClose);
+        // Convert predicted log-return back to price: close[i+1] * exp(predictedLogReturn)
+        const predictedPrice = candles[i + 1].close * Math.exp(predictedLogReturn);
+        const actualPrice = candles[i + 2].close;
+        const previousClose = candles[i + 1].close;
+
+        const error = PredictionError.from(predictedPrice, actualPrice, previousClose);
         session.registerPrediction(error);
 
         predictionRecords.push(
           PredictionRecord.create(
             session.id,
-            candles[i + 1].openTime,
-            prediction,
-            nextClose,
-            error.absoluteError,
-            error.squaredError,
+            candles[i + 2].openTime,
+            predictedPrice,
+            actualPrice,
             error.directionCorrect,
           ),
         );
@@ -96,7 +104,8 @@ export class RunBacktestUseCase {
       await this.backtestRepo.save(session);
 
       this.logger.log(
-        `Backtest ${session.id.value} completed: ${session.metrics.totalPredictions} predictions, MAE=${session.metrics.mae.toFixed(4)}, DirAcc=${session.metrics.directionalAccuracy.toFixed(1)}%`,
+        `Backtest ${session.id.value} completed: ${session.metrics.totalPredictions} predictions, ` +
+        `MAE=${session.metrics.mae.toFixed(4)}, DirAcc=${session.metrics.directionalAccuracy.toFixed(1)}%`,
       );
     } catch (err) {
       session.fail(String(err));

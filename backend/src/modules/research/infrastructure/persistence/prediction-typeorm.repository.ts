@@ -33,8 +33,6 @@ export class PredictionTypeOrmRepository implements PredictionRepositoryPort {
     orm.timestamp = record.timestamp;
     orm.predicted = record.predicted;
     orm.actual = record.actual;
-    orm.absoluteError = record.absoluteError;
-    orm.squaredError = record.squaredError;
     orm.directionCorrect = record.directionCorrect;
     return orm;
   }
@@ -46,8 +44,6 @@ export class PredictionTypeOrmRepository implements PredictionRepositoryPort {
         timestamp: orm.timestamp,
         predicted: Number(orm.predicted),
         actual: Number(orm.actual),
-        absoluteError: Number(orm.absoluteError),
-        squaredError: Number(orm.squaredError),
         directionCorrect: orm.directionCorrect,
       },
       new UniqueEntityId(orm.id),

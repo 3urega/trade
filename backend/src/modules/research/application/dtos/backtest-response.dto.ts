@@ -65,7 +65,7 @@ export class BacktestSessionResponseDto {
         timestamp: p.timestamp,
         predicted: p.predicted,
         actual: p.actual,
-        absoluteError: p.absoluteError,
+        absoluteError: Math.abs(p.predicted - p.actual),
         directionCorrect: p.directionCorrect,
       }));
     }

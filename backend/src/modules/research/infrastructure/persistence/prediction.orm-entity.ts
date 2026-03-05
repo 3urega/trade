@@ -17,12 +17,6 @@ export class PredictionOrmEntity {
   @Column('decimal', { precision: 20, scale: 8 })
   actual!: number;
 
-  @Column('decimal', { name: 'absolute_error', precision: 20, scale: 8 })
-  absoluteError!: number;
-
-  @Column('decimal', { name: 'squared_error', precision: 20, scale: 8 })
-  squaredError!: number;
-
   @Column({ name: 'direction_correct', type: 'boolean' })
   directionCorrect!: boolean;
 }

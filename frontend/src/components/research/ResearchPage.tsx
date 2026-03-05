@@ -2,13 +2,30 @@ import { useState, useEffect } from 'react';
 import { LoadCandlesForm } from './LoadCandlesForm.tsx';
 import { RunBacktestForm } from './RunBacktestForm.tsx';
 import { BacktestResults } from './BacktestResults.tsx';
+import { DatasetSummary } from './DatasetSummary.tsx';
+import { CandlestickChart } from './CandlestickChart.tsx';
 import { fetchBacktests, fetchBacktest } from '../../services/api.ts';
-import type { BacktestSession } from '../../types/index.ts';
+import type { BacktestSession, Timeframe } from '../../types/index.ts';
+
+interface SelectedDataset {
+  symbol: string;
+  timeframe: Timeframe;
+  start: string;
+  end: string;
+}
+
+interface ChartRange {
+  from: string;
+  to: string;
+}
 
 export function ResearchPage() {
   const [sessions, setSessions] = useState<BacktestSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<BacktestSession | null>(null);
+  const [selectedDataset, setSelectedDataset] = useState<SelectedDataset | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(true);
+  const [datasetRefresh, setDatasetRefresh] = useState(0);
+  const [chartRange, setChartRange] = useState<ChartRange | null>(null);
 
   useEffect(() => {
     void fetchBacktests()
@@ -17,14 +34,29 @@ export function ResearchPage() {
       .finally(() => setLoadingSessions(false));
   }, []);
 
+  function handleCandlesLoaded() {
+    setDatasetRefresh((n) => n + 1);
+  }
+
+  function handleDatasetSelect(symbol: string, timeframe: Timeframe, start: string, end: string) {
+    setSelectedDataset({ symbol, timeframe, start, end });
+    setSelectedSession(null);
+    setChartRange(null);
+  }
+
+  function handleChartRangeSelect(from: string, to: string) {
+    setChartRange({ from, to });
+  }
+
   async function handleBacktestCompleted(session: BacktestSession) {
-    // Fetch with predictions for the chart
     try {
       const full = await fetchBacktest(session.id, true);
       setSelectedSession(full);
+      setSelectedDataset(null);
       setSessions((prev) => [session, ...prev.filter((s) => s.id !== session.id)]);
     } catch {
       setSelectedSession(session);
+      setSelectedDataset(null);
     }
   }
 
@@ -32,17 +64,34 @@ export function ResearchPage() {
     try {
       const full = await fetchBacktest(session.id, true);
       setSelectedSession(full);
+      setSelectedDataset(null);
     } catch {
       setSelectedSession(session);
+      setSelectedDataset(null);
     }
   }
 
+  const selectedDatasetKey = selectedDataset
+    ? `${selectedDataset.symbol}-${selectedDataset.timeframe}`
+    : undefined;
+
   return (
     <div className="flex-1 flex overflow-hidden">
-      {/* Left panel: forms + session list */}
+      {/* Left panel */}
       <aside className="w-80 border-r border-gray-800 p-4 flex flex-col gap-4 overflow-y-auto">
-        <LoadCandlesForm />
-        <RunBacktestForm onCompleted={(s) => void handleBacktestCompleted(s)} />
+        <LoadCandlesForm onSuccess={handleCandlesLoaded} />
+
+        <DatasetSummary
+          onSelect={handleDatasetSelect}
+          selectedKey={selectedDatasetKey}
+          refreshTrigger={datasetRefresh}
+        />
+
+        <RunBacktestForm
+          onCompleted={(s) => void handleBacktestCompleted(s)}
+          prefilledFrom={chartRange?.from}
+          prefilledTo={chartRange?.to}
+        />
 
         <div>
           <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
@@ -76,13 +125,24 @@ export function ResearchPage() {
         </div>
       </aside>
 
-      {/* Right panel: results */}
-      <main className="flex-1 p-6 overflow-y-auto">
-        {!selectedSession && (
+      {/* Right panel */}
+      <main className="flex-1 p-6 overflow-y-auto space-y-6">
+        {!selectedDataset && !selectedSession && (
           <div className="flex items-center justify-center h-full text-gray-600 text-sm">
-            Load data, run a backtest, or select a past session to see results.
+            Load data and select a dataset to see its chart, or run a backtest to see results.
           </div>
         )}
+
+        {selectedDataset && (
+          <CandlestickChart
+            symbol={selectedDataset.symbol}
+            timeframe={selectedDataset.timeframe}
+            start={selectedDataset.start}
+            end={selectedDataset.end}
+            onRangeSelect={handleChartRangeSelect}
+          />
+        )}
+
         {selectedSession && (
           <BacktestResults session={selectedSession} />
         )}
