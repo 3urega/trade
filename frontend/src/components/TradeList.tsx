@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import type { Trade } from '../types/index.ts';
 
 interface Props {
@@ -5,6 +6,17 @@ interface Props {
 }
 
 export function TradeList({ trades }: Props) {
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+
+  // Resaltar la fila más reciente al recibir nuevos trades
+  useEffect(() => {
+    if (trades.length === 0) return;
+    const newestId = trades[0].id;
+    setHighlightId(newestId);
+    const t = setTimeout(() => setHighlightId(null), 2500);
+    return () => clearTimeout(t);
+  }, [trades.length, trades[0]?.id]);
+
   if (trades.length === 0) {
     return (
       <div className="flex items-center justify-center h-24 text-gray-600 text-sm">
@@ -28,7 +40,12 @@ export function TradeList({ trades }: Props) {
         </thead>
         <tbody>
           {trades.slice(0, 30).map(trade => (
-            <tr key={trade.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
+            <tr
+              key={trade.id}
+              className={`border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors duration-300 ${
+                highlightId === trade.id ? 'bg-cyan-500/20' : ''
+              }`}
+            >
               <td className="py-1 px-2 text-gray-500">
                 {new Date(trade.executedAt).toLocaleTimeString()}
               </td>

@@ -43,6 +43,10 @@ export class TradingController {
   async executeTrade(@Body() dto: ExecuteTradeDto): Promise<TradeResponseDto> {
     const trade = await this.executeTradeUseCase.execute(dto);
     this.gateway.emitTradeExecuted(trade);
+
+    const portfolio = await this.getPortfolioUseCase.execute(dto.walletId);
+    this.gateway.emitPortfolioUpdate(portfolio);
+
     return trade;
   }
 

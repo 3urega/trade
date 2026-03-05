@@ -1,9 +1,14 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import type { WalletRepositoryPort } from '../../domain/ports/wallet-repository.port.js';
 import { WALLET_REPOSITORY } from '../../domain/ports/wallet-repository.port.js';
+import type { MarketDataPort } from '../../domain/ports/market-data.port.js';
+import { MARKET_DATA_PORT } from '../../domain/ports/market-data.port.js';
 import { ExecuteTradeUseCase } from './execute-trade.use-case.js';
+import { GetPortfolioUseCase } from './get-portfolio.use-case.js';
 import { TradeType } from '../../domain/enums.js';
 import { Wallet } from '../../domain/entities/wallet.entity.js';
+import { CryptoPair } from '../../domain/value-objects/crypto-pair.js';
+import { TradingGateway } from '../../infrastructure/ws/trading.gateway.js';
 
 const SIMULATED_PAIRS = [
   { base: 'BTC', quote: 'USDT' },
@@ -22,7 +27,10 @@ export class SimulationService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly executeTradeUseCase: ExecuteTradeUseCase,
+    private readonly getPortfolioUseCase: GetPortfolioUseCase,
+    private readonly gateway: TradingGateway,
     @Inject(WALLET_REPOSITORY) private readonly walletRepo: WalletRepositoryPort,
+    @Inject(MARKET_DATA_PORT) private readonly marketData: MarketDataPort,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -65,14 +73,16 @@ export class SimulationService implements OnModuleInit, OnModuleDestroy {
     const pair = SIMULATED_PAIRS[Math.floor(Math.random() * SIMULATED_PAIRS.length)];
     const type = Math.random() > 0.5 ? TradeType.BUY : TradeType.SELL;
 
-    // Simulated price ranges per asset
-    const priceRanges: Record<string, [number, number]> = {
-      BTC: [55000, 75000],
-      ETH: [2500, 4000],
-      SOL: [120, 220],
-    };
-    const [min, max] = priceRanges[pair.base] ?? [100, 1000];
-    const price = parseFloat((Math.random() * (max - min) + min).toFixed(2));
+    // Precio real de Binance (mismo que portfolio y trade manual)
+    let price: number;
+    try {
+      const cryptoPair = CryptoPair.create(pair.base, pair.quote);
+      const live = await this.marketData.getCurrentPrice(cryptoPair);
+      price = live.value;
+    } catch {
+      return; // Si Binance falla, no ejecutamos trade con precio inventado
+    }
+
     const amount = parseFloat((Math.random() * 0.005 + 0.001).toFixed(6));
 
     try {
@@ -85,6 +95,11 @@ export class SimulationService implements OnModuleInit, OnModuleDestroy {
         price,
       });
       this.logger.debug(`Simulated: ${type} ${amount} ${pair.base}/${pair.quote} @ ${price} -> trade ${trade.id}`);
+
+      this.gateway.emitTradeExecuted(trade);
+
+      const portfolio = await this.getPortfolioUseCase.execute(this.walletId);
+      this.gateway.emitPortfolioUpdate(portfolio);
     } catch (err) {
       // Low balance is expected during simulation, skip silently
       this.logger.debug(`Simulation tick skipped: ${String(err)}`);

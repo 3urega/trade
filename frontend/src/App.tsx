@@ -3,7 +3,7 @@ import { PortfolioPanel } from './components/PortfolioPanel.tsx';
 import { PriceChart } from './components/PriceChart.tsx';
 import { TradeList } from './components/TradeList.tsx';
 import { fetchTrades, fetchPortfolio } from './services/api.ts';
-import { onTradeExecuted } from './services/socket.ts';
+import { onTradeExecuted, onPortfolioUpdate } from './services/socket.ts';
 import type { Trade, Portfolio } from './types/index.ts';
 
 const SIMULATION_WALLET_ID_KEY = 'sim_wallet_id';
@@ -59,13 +59,24 @@ export default function App() {
     return () => clearInterval(poll);
   }, [loadData]);
 
-  // WebSocket: new trades
+  // WebSocket: new trades (solo del wallet actual)
   useEffect(() => {
-    setWsStatus('connecting');
     const off = onTradeExecuted((trade) => {
       setWsStatus('connected');
-      setTrades(prev => [trade, ...prev].slice(0, 200));
-      if (walletId) void fetchPortfolio(walletId).then(setPortfolio).catch(() => {});
+      if (walletId && trade.walletId === walletId) {
+        setTrades(prev => [trade, ...prev].slice(0, 200));
+      }
+    });
+    return off;
+  }, [walletId]);
+
+  // WebSocket: portfolio update (balances + P&L en tiempo real)
+  useEffect(() => {
+    const off = onPortfolioUpdate((portfolio) => {
+      setWsStatus('connected');
+      if (walletId && portfolio.walletId === walletId) {
+        setPortfolio(portfolio);
+      }
     });
     return off;
   }, [walletId]);
