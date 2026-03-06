@@ -15,7 +15,7 @@ export class GetPortfolioUseCase implements UseCase<string, PortfolioResponseDto
     @Inject(MARKET_DATA_PORT) private readonly marketData: MarketDataPort,
   ) {}
 
-  async execute(walletId: string): Promise<PortfolioResponseDto> {
+  async execute(walletId: string, initialCapital?: number): Promise<PortfolioResponseDto> {
     const wallet = await this.walletRepo.findById(new UniqueEntityId(walletId));
     if (!wallet) throw new NotFoundException(`Wallet ${walletId} not found`);
 
@@ -33,6 +33,6 @@ export class GetPortfolioUseCase implements UseCase<string, PortfolioResponseDto
       }
     }
 
-    return PortfolioResponseDto.fromDomain(wallet, currentPrices);
+    return PortfolioResponseDto.fromDomain(wallet, currentPrices, initialCapital);
   }
 }

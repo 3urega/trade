@@ -10,7 +10,7 @@ import { Timeframe } from '../../../research/domain/enums.js';
 import { TradeSignal } from '../../domain/value-objects/trade-signal.js';
 import { CryptoPair } from '../../domain/value-objects/crypto-pair.js';
 import { SignalType } from '../../domain/enums.js';
-import { TradingConfigService } from './trading-config.service.js';
+import { PresetService } from './preset.service.js';
 
 // Need index >= 26 for features (EMA-26, Bollinger-20), plus buffer
 const CANDLE_LOOKBACK = 30;
@@ -25,7 +25,7 @@ export class TradingSignalService implements OnModuleInit {
     @Inject(BACKTEST_REPOSITORY) private readonly backtestRepo: BacktestRepositoryPort,
     @Inject(MARKET_DATA_PORT) private readonly marketData: MarketDataPort,
     private readonly features: FeatureEngineeringService,
-    private readonly tradingConfigService: TradingConfigService,
+    private readonly presetService: PresetService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -74,10 +74,13 @@ export class TradingSignalService implements OnModuleInit {
   /**
    * Generate a trading signal for a given pair + timeframe using the loaded ML model.
    * Returns HOLD if no model is loaded or not enough candle data is available.
+   * @param threshold Override the signal threshold (e.g. per-preset value). Falls back to the
+   *   first active preset's threshold when not provided.
    */
   async getSignal(
     pair: { base: string; quote: string },
     timeframe: Timeframe = Timeframe.FIVE_MINUTES,
+    threshold?: number,
   ): Promise<TradeSignal> {
     const symbol = `${pair.base}${pair.quote}`;
     const cryptoPair = CryptoPair.create(pair.base, pair.quote);
@@ -102,19 +105,20 @@ export class TradingSignalService implements OnModuleInit {
       const targetPrice = lastClose * Math.exp(predictedLogReturn);
       const confidence = Math.abs(predictedLogReturn);
 
-      const threshold = this.tradingConfigService.getConfig().signalThreshold;
+      const resolvedThreshold =
+        threshold ?? this.presetService.getConfigForSimulation().signalThreshold;
 
       let signalType: SignalType;
-      if (predictedLogReturn > threshold) {
+      if (predictedLogReturn > resolvedThreshold) {
         signalType = SignalType.BUY;
-      } else if (predictedLogReturn < -threshold) {
+      } else if (predictedLogReturn < -resolvedThreshold) {
         signalType = SignalType.SELL;
       } else {
         signalType = SignalType.HOLD;
       }
 
       this.logger.debug(
-        `Signal for ${symbol}: ${signalType} (logReturn=${predictedLogReturn.toFixed(6)}, threshold=±${threshold})`,
+        `Signal for ${symbol}: ${signalType} (logReturn=${predictedLogReturn.toFixed(6)}, threshold=±${resolvedThreshold})`,
       );
 
       return TradeSignal.create(signalType, cryptoPair, targetPrice, confidence);

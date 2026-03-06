@@ -5,9 +5,10 @@ import { ResearchModule } from '../research/research.module.js';
 // Infrastructure - Persistence
 import { TradeOrmEntity } from './infrastructure/persistence/trade.orm-entity.js';
 import { WalletOrmEntity } from './infrastructure/persistence/wallet.orm-entity.js';
-import { TradingConfigOrmEntity } from './infrastructure/persistence/trading-config.orm-entity.js';
+import { TradingPresetOrmEntity } from './infrastructure/persistence/trading-preset.orm-entity.js';
 import { TradeTypeOrmRepository } from './infrastructure/persistence/trade-typeorm.repository.js';
 import { WalletTypeOrmRepository } from './infrastructure/persistence/wallet-typeorm.repository.js';
+import { PresetTypeOrmRepository } from './infrastructure/persistence/preset-typeorm.repository.js';
 
 // Infrastructure - Adapters
 import { BinanceMarketAdapter } from './infrastructure/adapters/binance-market.adapter.js';
@@ -23,18 +24,19 @@ import { ExecuteTradeUseCase } from './application/use-cases/execute-trade.use-c
 import { GetPortfolioUseCase } from './application/use-cases/get-portfolio.use-case.js';
 import { GetTradesUseCase } from './application/use-cases/get-trades.use-case.js';
 import { CreateWalletUseCase } from './application/use-cases/create-wallet.use-case.js';
-import { SimulationService } from './application/use-cases/simulation.service.js';
+import { SimulationOrchestrator } from './application/use-cases/simulation-orchestrator.service.js';
 import { TradingSignalService } from './application/use-cases/trading-signal.service.js';
-import { TradingConfigService } from './application/use-cases/trading-config.service.js';
+import { PresetService } from './application/use-cases/preset.service.js';
 
 // Domain - Tokens
 import { TRADE_REPOSITORY } from './domain/ports/trade-repository.port.js';
 import { WALLET_REPOSITORY } from './domain/ports/wallet-repository.port.js';
+import { PRESET_REPOSITORY } from './domain/ports/preset-repository.port.js';
 import { MARKET_DATA_PORT } from './domain/ports/market-data.port.js';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([TradeOrmEntity, WalletOrmEntity, TradingConfigOrmEntity]),
+    TypeOrmModule.forFeature([TradeOrmEntity, WalletOrmEntity, TradingPresetOrmEntity]),
     ResearchModule,
   ],
   controllers: [TradingController],
@@ -42,6 +44,7 @@ import { MARKET_DATA_PORT } from './domain/ports/market-data.port.js';
     // Repository bindings (ports → implementations)
     { provide: TRADE_REPOSITORY, useClass: TradeTypeOrmRepository },
     { provide: WALLET_REPOSITORY, useClass: WalletTypeOrmRepository },
+    { provide: PRESET_REPOSITORY, useClass: PresetTypeOrmRepository },
     { provide: MARKET_DATA_PORT, useClass: BinanceMarketAdapter },
 
     // Use Cases
@@ -49,9 +52,9 @@ import { MARKET_DATA_PORT } from './domain/ports/market-data.port.js';
     GetPortfolioUseCase,
     GetTradesUseCase,
     CreateWalletUseCase,
-    TradingConfigService,
+    PresetService,
     TradingSignalService,
-    SimulationService,
+    SimulationOrchestrator,
 
     // WebSocket Gateway
     TradingGateway,

@@ -6,7 +6,7 @@ import { MARKET_DATA_PORT } from '../../domain/ports/market-data.port.js';
 import { ExecuteTradeUseCase } from './execute-trade.use-case.js';
 import { GetPortfolioUseCase } from './get-portfolio.use-case.js';
 import { TradingSignalService } from './trading-signal.service.js';
-import { TradingConfigService } from './trading-config.service.js';
+import { PresetService } from './preset.service.js';
 import { TradeType } from '../../domain/enums.js';
 import { Wallet } from '../../domain/entities/wallet.entity.js';
 import { CryptoPair } from '../../domain/value-objects/crypto-pair.js';
@@ -35,7 +35,7 @@ export class SimulationService implements OnModuleInit, OnModuleDestroy {
     private readonly getPortfolioUseCase: GetPortfolioUseCase,
     private readonly gateway: TradingGateway,
     private readonly tradingSignalService: TradingSignalService,
-    private readonly tradingConfigService: TradingConfigService,
+    private readonly presetService: PresetService,
     @Inject(WALLET_REPOSITORY) private readonly walletRepo: WalletRepositoryPort,
     @Inject(MARKET_DATA_PORT) private readonly marketData: MarketDataPort,
   ) {}
@@ -50,7 +50,7 @@ export class SimulationService implements OnModuleInit, OnModuleDestroy {
     this.start();
 
     // React to config changes
-    this.tradingConfigService.onChange((cfg) => {
+    this.presetService.onConfigChange((cfg) => {
       this.logger.log('Config changed, restarting simulation interval...');
       this.stop();
       this.subscribeLivePrices();
@@ -81,13 +81,13 @@ export class SimulationService implements OnModuleInit, OnModuleDestroy {
 
   start(): void {
     if (this.intervalHandle) return;
-    const cfg = this.tradingConfigService.getConfig();
+    const cfg = this.presetService.getConfigForSimulation();
     this.logger.log(`Starting ML-driven simulation every ${cfg.pollingIntervalMs}ms`);
     this.intervalHandle = setInterval(() => void this.runSimulationTick(), cfg.pollingIntervalMs);
   }
 
   private subscribeLivePrices(): void {
-    const cfg = this.tradingConfigService.getConfig();
+    const cfg = this.presetService.getConfigForSimulation();
     const pairs = cfg.activePairs.map((p) => {
       const [base, quote] = p.split('/');
       return { base: base!, quote: quote! };
@@ -117,7 +117,7 @@ export class SimulationService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const cfg = this.tradingConfigService.getConfig();
+    const cfg = this.presetService.getConfigForSimulation();
 
     // Check max drawdown pause
     if (cfg.maxDrawdownPct !== null && this.peakPortfolioValue !== null) {
@@ -155,7 +155,7 @@ export class SimulationService implements OnModuleInit, OnModuleDestroy {
   private async processPair(pair: { base: string; quote: string }): Promise<void> {
     if (!this.walletId) return;
 
-    const cfg = this.tradingConfigService.getConfig();
+    const cfg = this.presetService.getConfigForSimulation();
     const pairKey = `${pair.base}${pair.quote}`;
     const posState = this.positions.get(pairKey) ?? { hasPosition: false, entryPrice: 0, lastTradeAt: 0 };
 
@@ -215,7 +215,7 @@ export class SimulationService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     if (!this.walletId) return;
 
-    const cfg = this.tradingConfigService.getConfig();
+    const cfg = this.presetService.getConfigForSimulation();
 
     let amount: number;
     if (cfg.positionMode === 'percent') {

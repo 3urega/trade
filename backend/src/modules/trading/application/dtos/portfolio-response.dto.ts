@@ -4,6 +4,10 @@ import { Wallet } from '../../domain/entities/wallet.entity.js';
 export class BalanceEntryDto {
   @ApiProperty() currency!: string;
   @ApiProperty() amount!: number;
+  /** Current USDT value of this balance */
+  @ApiProperty() valueUsdt!: number;
+  /** Percentage of total portfolio value */
+  @ApiProperty() pct!: number;
 }
 
 export class PortfolioResponseDto {
@@ -20,13 +24,22 @@ export class PortfolioResponseDto {
   ): PortfolioResponseDto {
     const dto = new PortfolioResponseDto();
     dto.walletId = wallet.id.value;
-    dto.balances = Array.from(wallet.getBalances().entries()).map(([currency, amount]) => ({
-      currency,
-      amount,
-    }));
+
     dto.totalValueUsdt = wallet.calculatePnL(currentPrices).amount;
+    const total = dto.totalValueUsdt || 1; // avoid division by zero
+
+    dto.balances = Array.from(wallet.getBalances().entries()).map(([currency, amount]) => {
+      const valueUsdt = currency === 'USDT' ? amount : amount * (currentPrices.get(currency) ?? 0);
+      return {
+        currency,
+        amount,
+        valueUsdt,
+        pct: total > 0 ? (valueUsdt / total) * 100 : 0,
+      };
+    });
+
     dto.pnl = dto.totalValueUsdt - initialCapital;
-    dto.pnlPercent = (dto.pnl / initialCapital) * 100;
+    dto.pnlPercent = initialCapital > 0 ? (dto.pnl / initialCapital) * 100 : 0;
     return dto;
   }
 }

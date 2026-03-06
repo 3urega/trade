@@ -25,6 +25,8 @@ export class BinanceMarketAdapter implements MarketDataPort, OnModuleDestroy {
   private readonly logger = new Logger(BinanceMarketAdapter.name);
   private readonly fallback = new MockMarketAdapter();
   private readonly wsSockets = new Map<string, WebSocket>();
+  /** Fan-out: multiple callbacks per symbol (e.g. multiple presets watching the same pair) */
+  private readonly wsCallbacks = new Map<string, Array<(price: Price) => void>>();
 
   async getCurrentPrice(pair: CryptoPair): Promise<Price> {
     try {
@@ -95,6 +97,12 @@ export class BinanceMarketAdapter implements MarketDataPort, OnModuleDestroy {
     const symbol = pair.toSymbol().toLowerCase();
     const key = pair.toSymbol();
 
+    // Always register the callback so multiple callers (presets) get updates for the same pair
+    const callbacks = this.wsCallbacks.get(key) ?? [];
+    callbacks.push(callback);
+    this.wsCallbacks.set(key, callbacks);
+
+    // Open the WS connection only once per symbol
     if (this.wsSockets.has(key)) return;
 
     const url = `${BINANCE_WS}/${symbol}@miniTicker`;
@@ -104,7 +112,9 @@ export class BinanceMarketAdapter implements MarketDataPort, OnModuleDestroy {
       try {
         const msg = JSON.parse(data.toString()) as { c: string };
         const price = Price.create(pair, parseFloat(msg.c));
-        callback(price);
+        for (const cb of this.wsCallbacks.get(key) ?? []) {
+          cb(price);
+        }
       } catch { /* skip malformed frames */ }
     });
 
@@ -112,7 +122,10 @@ export class BinanceMarketAdapter implements MarketDataPort, OnModuleDestroy {
       this.logger.warn(`Binance WS error for ${key}: ${err.message}. Falling back to mock.`);
       ws.terminate();
       this.wsSockets.delete(key);
-      this.fallback.subscribeToPrice(pair, callback);
+      // Fan-out the fallback subscription to all registered callbacks
+      for (const cb of this.wsCallbacks.get(key) ?? []) {
+        this.fallback.subscribeToPrice(pair, cb);
+      }
     });
 
     ws.on('close', () => {
@@ -125,6 +138,7 @@ export class BinanceMarketAdapter implements MarketDataPort, OnModuleDestroy {
 
   unsubscribe(pair: CryptoPair): void {
     const key = pair.toSymbol();
+    this.wsCallbacks.delete(key);
     const ws = this.wsSockets.get(key);
     if (ws) {
       ws.terminate();
@@ -139,5 +153,6 @@ export class BinanceMarketAdapter implements MarketDataPort, OnModuleDestroy {
       this.logger.debug(`Closed Binance WS: ${key}`);
     }
     this.wsSockets.clear();
+    this.wsCallbacks.clear();
   }
 }
