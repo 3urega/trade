@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsUUID, IsOptional, IsNumber, Min, IsBoolean } from 'class-validator';
+import { IsDateString, IsUUID, IsOptional, IsNumber, Min, IsBoolean, Max } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class RunForwardTestDto {
@@ -29,4 +29,35 @@ export class RunForwardTestDto {
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   allowInSample?: boolean;
+
+  @ApiPropertyOptional({ example: 0.0005, description: 'Min predicted return magnitude to open a trade (default 0.0005)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  signalThreshold?: number;
+
+  @ApiPropertyOptional({ example: 0.001, description: 'Fee rate per trade, e.g. 0.001 = 0.1% (default 0.001)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  feeRate?: number;
+
+  @ApiPropertyOptional({ example: 0.5, description: 'Fraction of available capital to invest per trade, 0–1 (default 0.5)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  positionSizePct?: number;
+
+  @ApiPropertyOptional({ example: 2, description: 'Stop loss distance in multiples of local volatility (default 2)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  slMultiplier?: number;
+
+  @ApiPropertyOptional({ example: 3, description: 'Take profit distance in multiples of local volatility (default 3)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  tpMultiplier?: number;
 }

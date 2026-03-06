@@ -50,6 +50,7 @@ export class BacktestTypeOrmRepository implements BacktestRepositoryPort {
     orm.tradingMetrics = session.tradingMetrics
       ? (session.tradingMetrics as unknown as Record<string, unknown>)
       : null;
+    orm.predictionCorrelation = session.predictionCorrelation ?? null;
     return orm;
   }
 
@@ -75,6 +76,7 @@ export class BacktestTypeOrmRepository implements BacktestRepositoryPort {
         tradingMetrics: orm.tradingMetrics
           ? (orm.tradingMetrics as unknown as TradingMetrics)
           : undefined,
+        predictionCorrelation: orm.predictionCorrelation ?? undefined,
       },
       new UniqueEntityId(orm.id),
     );

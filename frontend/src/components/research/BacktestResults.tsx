@@ -190,6 +190,18 @@ function TradingResultsSection({ metrics: tm, timeframe }: { metrics: TradingMet
           highlight={skillHighlight(tm.sharpeRatio)}
         />
       </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <MetricCard
+          label="Profit Factor"
+          value={isFinite(tm.profitFactor) ? tm.profitFactor.toFixed(2) : '∞'}
+          highlight={tm.profitFactor > 1 ? 'positive' : tm.profitFactor === 0 ? 'neutral' : 'negative'}
+        />
+        <MetricCard
+          label="Avg Trade"
+          value={`${tm.avgTrade >= 0 ? '+' : ''}${tm.avgTrade.toFixed(2)} USDT`}
+          highlight={tm.avgTrade > 0 ? 'positive' : tm.avgTrade < 0 ? 'negative' : 'neutral'}
+        />
+      </div>
 
       {tm.equityCurve.length > 0 && (
         <div>
@@ -215,6 +227,7 @@ function TradingResultsSection({ metrics: tm, timeframe }: { metrics: TradingMet
                   <tr className="text-gray-500">
                     <th className="px-3 py-1.5 text-left">Time</th>
                     <th className="px-3 py-1.5 text-left">Type</th>
+                    <th className="px-3 py-1.5 text-left">Reason</th>
                     <th className="px-3 py-1.5 text-right">Price</th>
                     <th className="px-3 py-1.5 text-right">Qty</th>
                     <th className="px-3 py-1.5 text-right">Fee</th>
@@ -227,6 +240,12 @@ function TradingResultsSection({ metrics: tm, timeframe }: { metrics: TradingMet
                       <td className="px-3 py-1">{new Date(t.time).toLocaleString('es-ES', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                       <td className={`px-3 py-1 font-medium ${t.type === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>
                         {t.type}
+                      </td>
+                      <td className="px-3 py-1">
+                        {t.reason === 'STOP_LOSS' && <span className="text-xs px-1.5 py-0.5 rounded bg-red-900/40 text-red-400">SL</span>}
+                        {t.reason === 'TAKE_PROFIT' && <span className="text-xs px-1.5 py-0.5 rounded bg-green-900/40 text-green-400">TP</span>}
+                        {t.reason === 'SIGNAL' && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">SIG</span>}
+                        {t.reason === 'END_OF_TEST' && <span className="text-xs px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-400">END</span>}
                       </td>
                       <td className="px-3 py-1 text-right tabular-nums">{t.price.toFixed(2)}</td>
                       <td className="px-3 py-1 text-right tabular-nums">{t.qty.toFixed(6)}</td>
@@ -356,7 +375,7 @@ export function BacktestResults({ session }: Props) {
           {/* Row 3: Baseline comparison and finance */}
           <div>
             <p className="text-[10px] uppercase tracking-wider text-gray-600 mb-1">vs Baseline</p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <MetricCard label="Naive MAE" value={session.metrics.maeNaive.toFixed(4)} />
               <MetricCard
                 label="Skill Score"
@@ -367,6 +386,16 @@ export function BacktestResults({ session }: Props) {
                 label="Sharpe (sim.)"
                 value={session.metrics.sharpeRatio.toFixed(3)}
                 highlight={skillHighlight(session.metrics.sharpeRatio)}
+              />
+              <MetricCard
+                label="Pred Correlation"
+                value={session.predictionCorrelation != null ? session.predictionCorrelation.toFixed(4) : '—'}
+                highlight={
+                  session.predictionCorrelation == null ? 'neutral'
+                  : session.predictionCorrelation > 0.05 ? 'positive'
+                  : session.predictionCorrelation < 0 ? 'negative'
+                  : 'neutral'
+                }
               />
             </div>
           </div>

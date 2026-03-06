@@ -19,9 +19,6 @@ import { UniqueEntityId } from '../../../../shared/domain/unique-entity-id.js';
 import { BacktestStatus } from '../../domain/enums.js';
 
 const DEFAULT_INITIAL_CAPITAL = 10000;
-const SIGNAL_THRESHOLD = 0.0005;
-const FEE_RATE = 0.001;
-const POSITION_SIZE_PCT = 0.5;
 
 @Injectable()
 export class RunForwardTestUseCase {
@@ -99,12 +96,18 @@ export class RunForwardTestUseCase {
       const predictionRecords: PredictionRecord[] = [];
       const startIndex = minFeatureIndex;
       const initialCapital = dto.initialCapital ?? DEFAULT_INITIAL_CAPITAL;
-      const simulation = TradingSimulation.create(initialCapital, FEE_RATE, SIGNAL_THRESHOLD, POSITION_SIZE_PCT);
+      const signalThreshold = dto.signalThreshold ?? 0.0005;
+      const feeRate = dto.feeRate ?? 0.001;
+      const positionSizePct = dto.positionSizePct ?? 0.5;
+      const slMultiplier = dto.slMultiplier ?? 2;
+      const tpMultiplier = dto.tpMultiplier ?? 3;
+      const simulation = TradingSimulation.create(initialCapital, feeRate, signalThreshold, positionSizePct, slMultiplier, tpMultiplier);
 
       for (let i = startIndex; i < candles.length - 1; i++) {
         let predictedLogReturn: number;
+        let featureVec: ReturnType<typeof this.features.build>;
         try {
-          const featureVec = this.features.build(candles, i);
+          featureVec = this.features.build(candles, i);
           predictedLogReturn = await this.mlService.predict(featureVec);
         } catch {
           continue;
@@ -129,7 +132,8 @@ export class RunForwardTestUseCase {
           ),
         );
 
-        // Trading simulation
+        // Trading simulation — inject current volatility (feature index 3) before tick
+        simulation.setVolatility(featureVec.features[3]);
         simulation.processTick(predictedLogReturn, currentPrice, candles[i].openTime);
       }
 

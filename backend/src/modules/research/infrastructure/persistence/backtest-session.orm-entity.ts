@@ -49,4 +49,7 @@ export class BacktestSessionOrmEntity {
 
   @Column({ name: 'trading_metrics', type: 'jsonb', nullable: true })
   tradingMetrics!: Record<string, unknown> | null;
+
+  @Column({ name: 'prediction_correlation', type: 'float', nullable: true })
+  predictionCorrelation!: number | null;
 }

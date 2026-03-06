@@ -15,6 +15,11 @@ export function ForwardTestForm({ completedSessions, onCompleted, prefilledFrom,
   const [to, setTo] = useState('2024-06-01');
   const [initialCapital, setInitialCapital] = useState(10000);
   const [allowInSample, setAllowInSample] = useState(false);
+  const [signalThreshold, setSignalThreshold] = useState(0.0005);
+  const [feeRate, setFeeRate] = useState(0.001);
+  const [positionSizePct, setPositionSizePct] = useState(0.5);
+  const [slMultiplier, setSlMultiplier] = useState(2);
+  const [tpMultiplier, setTpMultiplier] = useState(3);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,6 +59,11 @@ export function ForwardTestForm({ completedSessions, onCompleted, prefilledFrom,
         to: new Date(to).toISOString(),
         initialCapital,
         allowInSample,
+        signalThreshold,
+        feeRate,
+        positionSizePct,
+        slMultiplier,
+        tpMultiplier,
       });
       onCompleted(session);
     } catch (err) {
@@ -135,6 +145,73 @@ export function ForwardTestForm({ completedSessions, onCompleted, prefilledFrom,
               onChange={(e) => setInitialCapital(Number(e.target.value))}
               className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-violet-500"
             />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Signal Threshold</label>
+              <input
+                type="number"
+                min={0}
+                step={0.0001}
+                value={signalThreshold}
+                onChange={(e) => setSignalThreshold(Number(e.target.value))}
+                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-violet-500"
+              />
+              <span className="text-xs text-gray-600">min return to trade</span>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Fee Rate</label>
+              <input
+                type="number"
+                min={0}
+                step={0.0001}
+                value={feeRate}
+                onChange={(e) => setFeeRate(Number(e.target.value))}
+                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-violet-500"
+              />
+              <span className="text-xs text-gray-600">e.g. 0.001 = 0.1%</span>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Position Size %</label>
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={positionSizePct}
+                onChange={(e) => setPositionSizePct(Number(e.target.value))}
+                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-violet-500"
+              />
+              <span className="text-xs text-gray-600">fraction of capital (0–1)</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">SL Multiplier</label>
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                value={slMultiplier}
+                onChange={(e) => setSlMultiplier(Number(e.target.value))}
+                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-violet-500"
+              />
+              <span className="text-xs text-gray-600">stop loss × volatility</span>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">TP Multiplier</label>
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                value={tpMultiplier}
+                onChange={(e) => setTpMultiplier(Number(e.target.value))}
+                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-violet-500"
+              />
+              <span className="text-xs text-gray-600">take profit × volatility</span>
+            </div>
           </div>
 
           <label className="flex items-center gap-2 cursor-pointer">

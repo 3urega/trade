@@ -21,6 +21,7 @@ interface BacktestSessionProps {
   completedAt?: Date;
   errorMessage?: string;
   tradingMetrics?: TradingMetrics;
+  predictionCorrelation?: number;
 }
 
 export class BacktestSession extends AggregateRoot<BacktestSessionProps> {
@@ -105,6 +106,7 @@ export class BacktestSession extends AggregateRoot<BacktestSessionProps> {
   get completedAt(): Date | undefined { return this.props.completedAt; }
   get errorMessage(): string | undefined { return this.props.errorMessage; }
   get tradingMetrics(): TradingMetrics | undefined { return this.props.tradingMetrics; }
+  get predictionCorrelation(): number | undefined { return this.props.predictionCorrelation; }
 
   setModelSnapshotId(id: string): void {
     this.props.modelSnapshotId = id;
@@ -112,6 +114,10 @@ export class BacktestSession extends AggregateRoot<BacktestSessionProps> {
 
   setTradingMetrics(metrics: TradingMetrics): void {
     this.props.tradingMetrics = metrics;
+  }
+
+  setPredictionCorrelation(value: number): void {
+    this.props.predictionCorrelation = value;
   }
 
   start(): void {

@@ -57,6 +57,8 @@ export class RunBacktestUseCase {
       await this.mlService.initialize(dto.modelType);
 
       const predictionRecords: PredictionRecord[] = [];
+      const predictedReturns: number[] = [];
+      const actualReturns: number[] = [];
       const startIndex = Math.max(dto.warmupPeriod, minFeatureIndex);
 
       for (let i = startIndex; i < candles.length - 1; i++) {
@@ -83,6 +85,8 @@ export class RunBacktestUseCase {
               predictedLogReturn,
             );
             session.registerPrediction(error);
+            predictedReturns.push(predictedLogReturn);
+            actualReturns.push(logReturnTarget);
 
             predictionRecords.push(
               PredictionRecord.create(
@@ -103,6 +107,8 @@ export class RunBacktestUseCase {
       }
 
       await this.predictionRepo.saveBatch(predictionRecords);
+
+      session.setPredictionCorrelation(pearsonCorrelation(predictedReturns, actualReturns));
 
       // Persist the trained model snapshot so it can be reused in forward tests
       try {
@@ -129,4 +135,17 @@ export class RunBacktestUseCase {
 
     return BacktestSessionResponseDto.fromDomain(session);
   }
+}
+
+function pearsonCorrelation(x: number[], y: number[]): number {
+  const n = x.length;
+  if (n < 2) return 0;
+  const sumX = x.reduce((a, b) => a + b, 0);
+  const sumY = y.reduce((a, b) => a + b, 0);
+  const sumXY = x.reduce((a, _, i) => a + x[i] * y[i], 0);
+  const sumX2 = x.reduce((a, v) => a + v * v, 0);
+  const sumY2 = y.reduce((a, v) => a + v * v, 0);
+  const num = n * sumXY - sumX * sumY;
+  const den = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+  return den === 0 ? 0 : num / den;
 }

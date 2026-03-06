@@ -99,6 +99,11 @@ export async function runForwardTest(payload: {
   to: string;
   initialCapital?: number;
   allowInSample?: boolean;
+  signalThreshold?: number;
+  feeRate?: number;
+  positionSizePct?: number;
+  slMultiplier?: number;
+  tpMultiplier?: number;
 }): Promise<BacktestSession> {
   const res = await fetch(`${BASE}/research/forward-test`, {
     method: 'POST',

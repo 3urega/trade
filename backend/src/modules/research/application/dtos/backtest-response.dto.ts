@@ -70,6 +70,7 @@ export class BacktestSessionResponseDto {
   predictions?: PredictionRecordResponseDto[];
   @ApiPropertyOptional({ type: TradingMetricsResponseDto })
   tradingMetrics?: TradingMetricsResponseDto;
+  @ApiPropertyOptional() predictionCorrelation?: number;
 
   static fromDomain(
     session: BacktestSession,
@@ -113,6 +114,7 @@ export class BacktestSessionResponseDto {
         directionCorrect: p.directionCorrect,
       }));
     }
+    dto.predictionCorrelation = session.predictionCorrelation;
     if (session.tradingMetrics) {
       const tm = session.tradingMetrics;
       dto.tradingMetrics = {

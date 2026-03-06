@@ -79,6 +79,7 @@ export interface SimTrade {
   fee: number;
   pnl: number;
   time: string;
+  reason: 'SIGNAL' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'END_OF_TEST';
 }
 
 export interface EquityPoint {
@@ -98,6 +99,8 @@ export interface TradingMetrics {
   maxDrawdown: number;
   maxDrawdownPercent: number;
   sharpeRatio: number;
+  profitFactor: number;
+  avgTrade: number;
   trades: SimTrade[];
   equityCurve: EquityPoint[];
 }
@@ -120,6 +123,7 @@ export interface BacktestSession {
   errorMessage?: string;
   predictions?: PredictionRecord[];
   tradingMetrics?: TradingMetrics;
+  predictionCorrelation?: number;
 }
 
 export interface LoadCandlesResult {

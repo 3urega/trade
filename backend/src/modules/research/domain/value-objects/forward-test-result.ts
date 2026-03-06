@@ -5,6 +5,7 @@ export interface SimTrade {
   fee: number;
   pnl: number;
   time: Date;
+  reason: 'SIGNAL' | 'STOP_LOSS' | 'TAKE_PROFIT' | 'END_OF_TEST';
 }
 
 export interface EquityPoint {
@@ -20,6 +21,11 @@ interface TradingSimulationState {
   feeRate: number;
   signalThreshold: number;
   positionSizePct: number;
+  slMultiplier: number;
+  tpMultiplier: number;
+  stopLossPrice: number;
+  takeProfitPrice: number;
+  lastVolatility: number;
   trades: SimTrade[];
   equityCurve: EquityPoint[];
   peakEquity: number;
@@ -38,6 +44,8 @@ export interface TradingMetrics {
   maxDrawdown: number;
   maxDrawdownPercent: number;
   sharpeRatio: number;
+  profitFactor: number;
+  avgTrade: number;
   trades: SimTrade[];
   equityCurve: EquityPoint[];
 }
@@ -58,6 +66,8 @@ export class TradingSimulation {
     feeRate = 0.001,
     signalThreshold = 0.0005,
     positionSizePct = 0.5,
+    slMultiplier = 2,
+    tpMultiplier = 3,
   ): TradingSimulation {
     return new TradingSimulation({
       initialCapital,
@@ -67,6 +77,11 @@ export class TradingSimulation {
       feeRate,
       signalThreshold,
       positionSizePct,
+      slMultiplier,
+      tpMultiplier,
+      stopLossPrice: 0,
+      takeProfitPrice: 0,
+      lastVolatility: 0,
       trades: [],
       equityCurve: [],
       peakEquity: initialCapital,
@@ -74,11 +89,29 @@ export class TradingSimulation {
     });
   }
 
+  setVolatility(vol: number): void {
+    this.state.lastVolatility = vol;
+  }
+
   processTick(predictedLogReturn: number, currentPrice: number, time: Date): void {
     const s = this.state;
 
+    // Check SL/TP before evaluating signal
+    if (s.positionQty > 0 && s.stopLossPrice > 0) {
+      if (currentPrice <= s.stopLossPrice) {
+        this.closePositionWith(currentPrice, time, 'STOP_LOSS');
+        this.updateEquity(currentPrice, time);
+        return;
+      } else if (currentPrice >= s.takeProfitPrice) {
+        this.closePositionWith(currentPrice, time, 'TAKE_PROFIT');
+        this.updateEquity(currentPrice, time);
+        return;
+      }
+    }
+
     if (predictedLogReturn > s.signalThreshold && s.positionQty === 0) {
-      const investAmount = s.cash * s.positionSizePct;
+      const confidence = Math.min(Math.abs(predictedLogReturn) / s.signalThreshold, 1);
+      const investAmount = s.cash * s.positionSizePct * confidence;
       const fee = investAmount * s.feeRate;
       const netInvest = investAmount - fee;
       const qty = netInvest / currentPrice;
@@ -86,42 +119,44 @@ export class TradingSimulation {
       s.positionQty = qty;
       s.positionEntryPrice = currentPrice;
       s.cash -= investAmount;
-      s.trades.push({ type: 'BUY', price: currentPrice, qty, fee, pnl: 0, time });
+      s.stopLossPrice = currentPrice - (s.slMultiplier * s.lastVolatility * currentPrice);
+      s.takeProfitPrice = currentPrice + (s.tpMultiplier * s.lastVolatility * currentPrice);
+      s.trades.push({ type: 'BUY', price: currentPrice, qty, fee, pnl: 0, time, reason: 'SIGNAL' });
     } else if (predictedLogReturn < -s.signalThreshold && s.positionQty > 0) {
-      const grossValue = s.positionQty * currentPrice;
-      const fee = grossValue * s.feeRate;
-      const netValue = grossValue - fee;
-      const costBasis = s.positionQty * s.positionEntryPrice;
-      const pnl = netValue - costBasis;
-
-      s.cash += netValue;
-      s.trades.push({ type: 'SELL', price: currentPrice, qty: s.positionQty, fee, pnl, time });
-      s.positionQty = 0;
-      s.positionEntryPrice = 0;
+      this.closePositionWith(currentPrice, time, 'SIGNAL');
     }
 
-    const equity = s.cash + s.positionQty * currentPrice;
-    s.equityCurve.push({ time, equity });
-
-    if (equity > s.peakEquity) s.peakEquity = equity;
-    const drawdown = s.peakEquity - equity;
-    if (drawdown > s.maxDrawdown) s.maxDrawdown = drawdown;
+    this.updateEquity(currentPrice, time);
   }
 
-  closeOpenPosition(currentPrice: number, time: Date): void {
+  private closePositionWith(price: number, time: Date, reason: SimTrade['reason']): void {
     const s = this.state;
-    if (s.positionQty <= 0) return;
-
-    const grossValue = s.positionQty * currentPrice;
+    const grossValue = s.positionQty * price;
     const fee = grossValue * s.feeRate;
     const netValue = grossValue - fee;
     const costBasis = s.positionQty * s.positionEntryPrice;
     const pnl = netValue - costBasis;
 
     s.cash += netValue;
-    s.trades.push({ type: 'SELL', price: currentPrice, qty: s.positionQty, fee, pnl, time });
+    s.trades.push({ type: 'SELL', price, qty: s.positionQty, fee, pnl, time, reason });
     s.positionQty = 0;
     s.positionEntryPrice = 0;
+    s.stopLossPrice = 0;
+    s.takeProfitPrice = 0;
+  }
+
+  private updateEquity(currentPrice: number, time: Date): void {
+    const s = this.state;
+    const equity = s.cash + s.positionQty * currentPrice;
+    s.equityCurve.push({ time, equity });
+    if (equity > s.peakEquity) s.peakEquity = equity;
+    const drawdown = s.peakEquity - equity;
+    if (drawdown > s.maxDrawdown) s.maxDrawdown = drawdown;
+  }
+
+  closeOpenPosition(currentPrice: number, time: Date): void {
+    if (this.state.positionQty <= 0) return;
+    this.closePositionWith(currentPrice, time, 'END_OF_TEST');
   }
 
   getMetrics(): TradingMetrics {
@@ -146,6 +181,11 @@ export class TradingSimulation {
       if (std > 0) sharpeRatio = mean / std;
     }
 
+    const grossProfit = sellTrades.filter((t) => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
+    const grossLoss = Math.abs(sellTrades.filter((t) => t.pnl <= 0).reduce((s, t) => s + t.pnl, 0));
+    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : 0;
+    const avgTrade = sellTrades.length > 0 ? totalPnl / sellTrades.length : 0;
+
     return {
       initialCapital: s.initialCapital,
       finalCapital,
@@ -158,6 +198,8 @@ export class TradingSimulation {
       maxDrawdown: s.maxDrawdown,
       maxDrawdownPercent,
       sharpeRatio,
+      profitFactor,
+      avgTrade,
       trades: [...s.trades],
       equityCurve: [...s.equityCurve],
     };
