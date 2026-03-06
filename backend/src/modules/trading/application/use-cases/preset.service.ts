@@ -41,7 +41,6 @@ const DEFAULT_CONFIG: TradingConfig = {
 @Injectable()
 export class PresetService implements OnModuleInit {
   private readonly logger = new Logger(PresetService.name);
-  private configChangeCallbacks: Array<(cfg: TradingConfig) => void> = [];
   private presetChangeCallbacks: Array<(preset: PresetRecord, event: PresetChangeEvent) => void> = [];
   private cachedConfig: TradingConfig = { ...DEFAULT_CONFIG };
 
@@ -60,12 +59,12 @@ export class PresetService implements OnModuleInit {
     this.cachedConfig = preset ? this.recordToConfig(preset) : { ...DEFAULT_CONFIG };
   }
 
-  /** Returns config of first active preset (for SimulationService backward compat) */
+  /** Returns config of the first active preset — used by GET /trading/config (legacy endpoint) */
   getConfigForSimulation(): TradingConfig {
     return { ...this.cachedConfig };
   }
 
-  /** Update config of first active preset (for backward compat with PUT /trading/config) */
+  /** Updates the first active preset's config — used by PUT /trading/config (legacy endpoint) */
   async updateConfigForSimulation(partial: PartialTradingConfig): Promise<TradingConfig> {
     const preset = await this.getFirstActivePreset();
     if (!preset) {
@@ -89,21 +88,14 @@ export class PresetService implements OnModuleInit {
       updatedAt: new Date(),
     };
     await this.presetRepo.save(updated);
-    this.logger.log(`Preset ${preset.id} config updated`);
+    this.logger.log(`Preset ${preset.id} config updated via legacy endpoint`);
     const cfg = this.recordToConfig(updated);
     this.cachedConfig = cfg;
-    for (const cb of this.configChangeCallbacks) {
-      cb(cfg);
-    }
+    this.firePresetChange(updated, 'config_updated');
     return cfg;
   }
 
-  /** Register callback when config changes (for SimulationService — backward compat, alias of 'config_updated') */
-  onConfigChange(cb: (cfg: TradingConfig) => void): void {
-    this.configChangeCallbacks.push(cb);
-  }
-
-  /** Register callback for any preset lifecycle change (for SimulationOrchestrator) */
+  /** Register callback for any preset lifecycle change (used by SimulationOrchestrator) */
   onPresetChange(cb: (preset: PresetRecord, event: PresetChangeEvent) => void): void {
     this.presetChangeCallbacks.push(cb);
   }
@@ -184,12 +176,7 @@ export class PresetService implements OnModuleInit {
       const event: PresetChangeEvent = updated.status === 'paused' ? 'paused' : 'archived';
       this.firePresetChange(updated, event);
     } else if (wasActive && isNowActive) {
-      // Config fields changed on an active preset
-      const cfg = this.recordToConfig(updated);
-      this.cachedConfig = cfg;
-      for (const cb of this.configChangeCallbacks) {
-        cb(cfg);
-      }
+      this.cachedConfig = this.recordToConfig(updated);
       this.firePresetChange(updated, 'config_updated');
     }
 
@@ -211,10 +198,6 @@ export class PresetService implements OnModuleInit {
   private async getFirstActivePreset(): Promise<PresetRecord | null> {
     const active = await this.presetRepo.findByStatus('active');
     return active[0] ?? null;
-  }
-
-  private getFirstActivePresetSync(): PresetRecord | null {
-    return null;
   }
 
   private recordToConfig(rec: PresetRecord): TradingConfig {
