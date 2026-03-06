@@ -6,19 +6,30 @@ const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d'];
 const MODELS: { value: ModelType; label: string }[] = [
   { value: 'sgd_regressor', label: 'SGD Regressor' },
   { value: 'passive_aggressive', label: 'Passive Aggressive' },
+  { value: 'mlp_regressor', label: 'MLP Regressor (neural network)' },
 ];
 
 interface Props {
   onCompleted: (session: BacktestSession) => void;
+  prefilledSymbol?: string;
+  prefilledTimeframe?: Timeframe;
   prefilledFrom?: string;
   prefilledTo?: string;
 }
 
-export function RunBacktestForm({ onCompleted, prefilledFrom, prefilledTo }: Props) {
+export function RunBacktestForm({ onCompleted, prefilledSymbol, prefilledTimeframe, prefilledFrom, prefilledTo }: Props) {
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [timeframe, setTimeframe] = useState<Timeframe>('1h');
-  const [from, setFrom] = useState('2024-01-01');
-  const [to, setTo] = useState('2024-03-01');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+
+  useEffect(() => {
+    if (prefilledSymbol) setSymbol(prefilledSymbol);
+  }, [prefilledSymbol]);
+
+  useEffect(() => {
+    if (prefilledTimeframe) setTimeframe(prefilledTimeframe);
+  }, [prefilledTimeframe]);
 
   useEffect(() => {
     if (prefilledFrom) setFrom(prefilledFrom);
@@ -61,10 +72,15 @@ export function RunBacktestForm({ onCompleted, prefilledFrom, prefilledTo }: Pro
         </h3>
         {prefilledFrom && prefilledTo && (
           <span className="text-xs bg-green-900/30 border border-green-700/40 text-green-400 px-2 py-0.5 rounded">
-            Range from chart
+            {prefilledFrom === from && prefilledTo === to ? 'Range from chart' : 'From dataset'}
           </span>
         )}
       </div>
+      {!from && !to && (
+        <p className="text-xs text-yellow-600/80 mb-3">
+          Select a dataset above to prefill the date range.
+        </p>
+      )}
       <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>

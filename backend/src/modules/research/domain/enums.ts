@@ -17,6 +17,7 @@ export enum Timeframe {
 export enum ModelType {
   SGD_REGRESSOR = 'sgd_regressor',
   PASSIVE_AGGRESSIVE = 'passive_aggressive',
+  MLP_REGRESSOR = 'mlp_regressor',
 }
 
 export enum SessionType {

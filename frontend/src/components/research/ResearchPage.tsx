@@ -5,6 +5,7 @@ import { BacktestResults } from './BacktestResults.tsx';
 import { DatasetSummary } from './DatasetSummary.tsx';
 import { CandlestickChart } from './CandlestickChart.tsx';
 import { ForwardTestForm } from './ForwardTestForm.tsx';
+import { CandleCalendar } from './CandleCalendar.tsx';
 import { fetchBacktests, fetchBacktest } from '../../services/api.ts';
 import type { BacktestSession, Timeframe } from '../../types/index.ts';
 
@@ -27,6 +28,13 @@ export function ResearchPage() {
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [datasetRefresh, setDatasetRefresh] = useState(0);
   const [chartRange, setChartRange] = useState<ChartRange | null>(null);
+
+  // Prefill values for the backtest / forward-test forms, sourced from the selected dataset.
+  // Chart range selection overrides the date part but keeps symbol/timeframe.
+  const prefillSymbol = selectedDataset?.symbol;
+  const prefillTimeframe = selectedDataset?.timeframe;
+  const prefillFrom = chartRange?.from ?? (selectedDataset ? selectedDataset.start.slice(0, 10) : undefined);
+  const prefillTo = chartRange?.to ?? (selectedDataset ? selectedDataset.end.slice(0, 10) : undefined);
 
   useEffect(() => {
     void fetchBacktests()
@@ -84,6 +92,8 @@ export function ResearchPage() {
     <div className="flex-1 flex overflow-hidden">
       {/* Left panel */}
       <aside className="w-80 border-r border-gray-800 p-4 flex flex-col gap-4 overflow-y-auto">
+        <CandleCalendar refreshTrigger={datasetRefresh} />
+
         <LoadCandlesForm onSuccess={handleCandlesLoaded} />
 
         <DatasetSummary
@@ -94,15 +104,17 @@ export function ResearchPage() {
 
         <RunBacktestForm
           onCompleted={(s) => void handleSessionCompleted(s)}
-          prefilledFrom={chartRange?.from}
-          prefilledTo={chartRange?.to}
+          prefilledSymbol={prefillSymbol}
+          prefilledTimeframe={prefillTimeframe}
+          prefilledFrom={prefillFrom}
+          prefilledTo={prefillTo}
         />
 
         <ForwardTestForm
           completedSessions={sessions.filter((s) => s.status === 'COMPLETED' && (s.sessionType === 'BACKTEST' || !s.sessionType))}
           onCompleted={(s) => void handleSessionCompleted(s)}
-          prefilledFrom={chartRange?.from}
-          prefilledTo={chartRange?.to}
+          prefilledFrom={prefillFrom}
+          prefilledTo={prefillTo}
         />
 
         <div>

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sklearn.linear_model import SGDRegressor, PassiveAggressiveRegressor
+from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 import numpy as np
 import joblib
@@ -130,6 +131,17 @@ SUPPORTED_MODELS = {
         warm_start=True,
         random_state=42,
     ),
+    "mlp_regressor": lambda: MLPRegressor(
+        hidden_layer_sizes=(64, 32),
+        activation="relu",
+        solver="adam",
+        alpha=0.001,
+        learning_rate="adaptive",
+        learning_rate_init=0.001,
+        max_iter=1,
+        warm_start=True,
+        random_state=42,
+    ),
 }
 
 
@@ -147,9 +159,15 @@ def _scaler_fitted(scaler: StandardScaler) -> bool:
 
 def _model_healthy() -> bool:
     """Verify model coefficients contain no NaN/Inf values."""
-    if model is None or not hasattr(model, "coef_") or model.coef_ is None:
+    if model is None:
         return False
-    return bool(np.all(np.isfinite(model.coef_)))
+    # Linear models (SGDRegressor, PassiveAggressive): coef_ is a 1-D array
+    if hasattr(model, "coef_") and model.coef_ is not None:
+        return bool(np.all(np.isfinite(model.coef_)))
+    # MLP models: coefs_ is a list of weight matrices, one per layer
+    if hasattr(model, "coefs_") and model.coefs_ is not None:
+        return all(np.all(np.isfinite(c)) for c in model.coefs_)
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +238,11 @@ def partial_train(request: PartialTrainRequest):
 def predict(request: PredictRequest):
     _require_model()
 
-    if not hasattr(model, "coef_") or model.coef_ is None:
+    trained = (
+        (hasattr(model, "coef_") and model.coef_ is not None) or
+        (hasattr(model, "coefs_") and model.coefs_ is not None)
+    )
+    if not trained:
         raise HTTPException(
             status_code=400,
             detail="Model has not been trained yet. Call POST /partial-train at least once.",
