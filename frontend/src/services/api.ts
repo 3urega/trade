@@ -2,6 +2,7 @@ import type {
   Trade, Portfolio, BacktestSession, LoadCandlesResult, CandleDatasetSummary,
   CandleData, Timeframe, ModelType, TradingConfig, AvailableModel,
   Preset, PresetMetrics, CreatePresetInput, UpdatePresetInput,
+  ResearchExperiment, CreateExperimentInput,
 } from '../types/index.ts';
 
 const BASE = '/v1';
@@ -232,4 +233,58 @@ export async function fetchCandles(
   const res = await fetch(`${BASE}/research/candles?${params}`);
   if (!res.ok) throw new Error('Failed to fetch candles');
   return res.json() as Promise<CandleData[]>;
+}
+
+// --- Experiments API ---
+
+export async function fetchExperiments(): Promise<ResearchExperiment[]> {
+  const res = await fetch(`${BASE}/research/experiments`);
+  if (!res.ok) throw new Error('Failed to fetch experiments');
+  return res.json() as Promise<ResearchExperiment[]>;
+}
+
+export async function createExperiment(input: CreateExperimentInput): Promise<ResearchExperiment> {
+  const res = await fetch(`${BASE}/research/experiments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const err = await res.json() as { message?: string };
+    throw new Error(err.message ?? 'Failed to create experiment');
+  }
+  return res.json() as Promise<ResearchExperiment>;
+}
+
+export async function updateExperiment(id: string, input: Partial<CreateExperimentInput> & { enabled?: boolean }): Promise<ResearchExperiment> {
+  const res = await fetch(`${BASE}/research/experiments/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const err = await res.json() as { message?: string };
+    throw new Error(err.message ?? 'Failed to update experiment');
+  }
+  return res.json() as Promise<ResearchExperiment>;
+}
+
+export async function deleteExperiment(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/research/experiments/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete experiment ${id}`);
+}
+
+export async function toggleExperiment(id: string): Promise<ResearchExperiment> {
+  const res = await fetch(`${BASE}/research/experiments/${id}/toggle`, { method: 'PATCH' });
+  if (!res.ok) throw new Error(`Failed to toggle experiment ${id}`);
+  return res.json() as Promise<ResearchExperiment>;
+}
+
+export async function runExperimentNow(id: string): Promise<ResearchExperiment> {
+  const res = await fetch(`${BASE}/research/experiments/${id}/run`, { method: 'POST' });
+  if (!res.ok) {
+    const err = await res.json() as { message?: string };
+    throw new Error(err.message ?? 'Failed to run experiment');
+  }
+  return res.json() as Promise<ResearchExperiment>;
 }

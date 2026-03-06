@@ -6,6 +6,7 @@ import { DatasetSummary } from './DatasetSummary.tsx';
 import { CandlestickChart } from './CandlestickChart.tsx';
 import { ForwardTestForm } from './ForwardTestForm.tsx';
 import { CandleCalendar } from './CandleCalendar.tsx';
+import { ExperimentPanel } from './ExperimentPanel.tsx';
 import { fetchBacktests, fetchBacktest } from '../../services/api.ts';
 import type { BacktestSession, Timeframe } from '../../types/index.ts';
 
@@ -84,6 +85,14 @@ export function ResearchPage() {
     }
   }
 
+  async function handleSelectSessionById(id: string) {
+    try {
+      const full = await fetchBacktest(id, true);
+      setSelectedSession(full);
+      setSelectedDataset(null);
+    } catch { /* ignore */ }
+  }
+
   const selectedDatasetKey = selectedDataset
     ? `${selectedDataset.symbol}-${selectedDataset.timeframe}`
     : undefined;
@@ -116,6 +125,8 @@ export function ResearchPage() {
           prefilledFrom={prefillFrom}
           prefilledTo={prefillTo}
         />
+
+        <ExperimentPanel onSelectSession={(id) => void handleSelectSessionById(id)} />
 
         <div>
           <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">

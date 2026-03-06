@@ -5,11 +5,13 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { HistoricalCandleOrmEntity } from './infrastructure/persistence/historical-candle.orm-entity.js';
 import { BacktestSessionOrmEntity } from './infrastructure/persistence/backtest-session.orm-entity.js';
 import { PredictionOrmEntity } from './infrastructure/persistence/prediction.orm-entity.js';
+import { ResearchExperimentOrmEntity } from './infrastructure/persistence/research-experiment.orm-entity.js';
 
 // Repositories
 import { CandleTypeOrmRepository } from './infrastructure/persistence/candle-typeorm.repository.js';
 import { BacktestTypeOrmRepository } from './infrastructure/persistence/backtest-typeorm.repository.js';
 import { PredictionTypeOrmRepository } from './infrastructure/persistence/prediction-typeorm.repository.js';
+import { ExperimentTypeOrmRepository } from './infrastructure/persistence/experiment-typeorm.repository.js';
 
 // Adapters
 import { BinanceCandleAdapter } from './infrastructure/adapters/binance-candle.adapter.js';
@@ -21,6 +23,8 @@ import { LoadHistoricalDataUseCase } from './application/use-cases/load-historic
 import { RunBacktestUseCase } from './application/use-cases/run-backtest.use-case.js';
 import { GetBacktestUseCase } from './application/use-cases/get-backtest.use-case.js';
 import { RunForwardTestUseCase } from './application/use-cases/run-forward-test.use-case.js';
+import { RunExperimentUseCase } from './application/use-cases/run-experiment.use-case.js';
+import { ResearchSchedulerService } from './application/research-scheduler.service.js';
 
 // Controller
 import { ResearchController } from './infrastructure/http/research.controller.js';
@@ -30,6 +34,7 @@ import { CANDLE_REPOSITORY } from './domain/ports/candle-repository.port.js';
 import { BACKTEST_REPOSITORY } from './domain/ports/backtest-repository.port.js';
 import { PREDICTION_REPOSITORY } from './domain/ports/prediction-repository.port.js';
 import { ML_SERVICE_PORT } from './domain/ports/ml-service.port.js';
+import { EXPERIMENT_REPOSITORY } from './domain/ports/experiment-repository.port.js';
 
 @Module({
   imports: [
@@ -37,6 +42,7 @@ import { ML_SERVICE_PORT } from './domain/ports/ml-service.port.js';
       HistoricalCandleOrmEntity,
       BacktestSessionOrmEntity,
       PredictionOrmEntity,
+      ResearchExperimentOrmEntity,
     ]),
   ],
   controllers: [ResearchController],
@@ -56,11 +62,15 @@ import { ML_SERVICE_PORT } from './domain/ports/ml-service.port.js';
     RunBacktestUseCase,
     GetBacktestUseCase,
     RunForwardTestUseCase,
+    RunExperimentUseCase,
+    ResearchSchedulerService,
+    { provide: EXPERIMENT_REPOSITORY, useClass: ExperimentTypeOrmRepository },
   ],
   exports: [
     { provide: ML_SERVICE_PORT, useClass: PythonMlAdapter },
     { provide: CANDLE_REPOSITORY, useClass: CandleTypeOrmRepository },
     { provide: BACKTEST_REPOSITORY, useClass: BacktestTypeOrmRepository },
+    { provide: EXPERIMENT_REPOSITORY, useClass: ExperimentTypeOrmRepository },
     FeatureEngineeringService,
   ],
 })

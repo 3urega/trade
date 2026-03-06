@@ -274,3 +274,38 @@ export interface CreatePresetInput {
 export type UpdatePresetInput = Partial<CreatePresetInput> & {
   status?: PresetStatus;
 };
+
+// --- Research Experiments (scheduler) ---
+
+export type ExperimentRunStatus = 'SUCCESS' | 'FAILED' | 'RUNNING';
+
+export interface ResearchExperiment {
+  id: string;
+  name: string;
+  symbol: string;
+  timeframe: Timeframe;
+  modelType: ModelType;
+  warmupPeriod: number;
+  trainWindowDays: number;
+  forwardWindowDays: number;
+  initialCapital: number;
+  enabled: boolean;
+  lastRunAt: string | null;
+  lastRunStatus: ExperimentRunStatus | null;
+  lastBacktestSessionId: string | null;
+  lastForwardSessionId: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateExperimentInput {
+  name: string;
+  symbol: string;
+  timeframe: Timeframe;
+  modelType: ModelType;
+  warmupPeriod?: number;
+  trainWindowDays?: number;
+  forwardWindowDays?: number;
+  initialCapital?: number;
+}

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TradingModule } from './modules/trading/trading.module.js';
 import { ResearchModule } from './modules/research/research.module.js';
 
@@ -13,6 +14,7 @@ import { ResearchModule } from './modules/research/research.module.js';
     }),
 
     EventEmitterModule.forRoot({ wildcard: true }),
+    ScheduleModule.forRoot(),
     TradingModule,
     ResearchModule,
 
