@@ -16,7 +16,7 @@ import { FeatureEngineeringService } from '../feature-engineering.service.js';
 import { RunForwardTestDto } from '../dtos/run-forward-test.dto.js';
 import { ForwardTestResponseDto } from '../dtos/backtest-response.dto.js';
 import { UniqueEntityId } from '../../../../shared/domain/unique-entity-id.js';
-import { BacktestStatus } from '../../domain/enums.js';
+import { BacktestStatus, ModelType } from '../../domain/enums.js';
 
 const DEFAULT_INITIAL_CAPITAL = 10000;
 
@@ -91,7 +91,12 @@ export class RunForwardTestUseCase {
     let tradingMetrics: TradingMetrics | undefined;
 
     try {
-      await this.mlService.loadModel(sourceSession.modelSnapshotId);
+      const isEnsemble = sourceSession.modelType === ModelType.ENSEMBLE;
+      if (isEnsemble) {
+        await this.mlService.loadEnsemble(sourceSession.modelSnapshotId);
+      } else {
+        await this.mlService.loadModel(sourceSession.modelSnapshotId);
+      }
 
       const predictionRecords: PredictionRecord[] = [];
       const startIndex = minFeatureIndex;
@@ -108,7 +113,9 @@ export class RunForwardTestUseCase {
         let featureVec: ReturnType<typeof this.features.build>;
         try {
           featureVec = this.features.build(candles, i);
-          predictedLogReturn = await this.mlService.predict(featureVec);
+          predictedLogReturn = isEnsemble
+            ? await this.mlService.predictEnsemble(featureVec)
+            : await this.mlService.predict(featureVec);
         } catch {
           continue;
         }

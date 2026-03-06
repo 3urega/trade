@@ -45,6 +45,14 @@ scaler_y: StandardScaler | None = None
 model_type_active: str | None = None
 train_count: int = 0
 
+# ---------------------------------------------------------------------------
+# Ensemble state (coexists with single-model state)
+# ---------------------------------------------------------------------------
+ensemble_models: dict = {}
+ensemble_scaler_x: StandardScaler | None = None
+ensemble_scaler_y: StandardScaler | None = None
+ensemble_train_count: int = 0
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -81,6 +89,11 @@ class StatusResponse(BaseModel):
 
 class PredictionResponse(BaseModel):
     prediction: float
+
+
+class EnsemblePredictionResponse(BaseModel):
+    prediction: float
+    individual: list[float]
 
 
 class DiagnosticsResponse(BaseModel):
@@ -161,13 +174,32 @@ def _model_healthy() -> bool:
     """Verify model coefficients contain no NaN/Inf values."""
     if model is None:
         return False
-    # Linear models (SGDRegressor, PassiveAggressive): coef_ is a 1-D array
-    if hasattr(model, "coef_") and model.coef_ is not None:
-        return bool(np.all(np.isfinite(model.coef_)))
-    # MLP models: coefs_ is a list of weight matrices, one per layer
-    if hasattr(model, "coefs_") and model.coefs_ is not None:
-        return all(np.all(np.isfinite(c)) for c in model.coefs_)
+    return _check_model_healthy(model)
+
+
+def _check_model_healthy(m) -> bool:
+    if m is None:
+        return False
+    if hasattr(m, "coef_") and m.coef_ is not None:
+        return bool(np.all(np.isfinite(m.coef_)))
+    if hasattr(m, "coefs_") and m.coefs_ is not None:
+        return all(np.all(np.isfinite(c)) for c in m.coefs_)
     return False
+
+
+def _require_ensemble():
+    if not ensemble_models:
+        raise HTTPException(
+            status_code=400,
+            detail="Ensemble not initialized. Call POST /initialize-ensemble first.",
+        )
+
+
+def _model_is_trained(m) -> bool:
+    return (
+        (hasattr(m, "coef_") and m.coef_ is not None) or
+        (hasattr(m, "coefs_") and m.coefs_ is not None)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +295,142 @@ def predict(request: PredictRequest):
         raise HTTPException(status_code=500, detail="Model produced NaN/Inf — likely diverged.")
 
     return PredictionResponse(prediction=prediction)
+
+
+# ---------------------------------------------------------------------------
+# Ensemble endpoints
+# ---------------------------------------------------------------------------
+
+ENSEMBLE_MODEL_TYPES = ["sgd_regressor", "passive_aggressive", "mlp_regressor"]
+
+
+@app.post("/initialize-ensemble", response_model=StatusResponse)
+def initialize_ensemble():
+    global ensemble_models, ensemble_scaler_x, ensemble_scaler_y, ensemble_train_count
+
+    ensemble_models = {k: SUPPORTED_MODELS[k]() for k in ENSEMBLE_MODEL_TYPES}
+    ensemble_scaler_x = StandardScaler()
+    ensemble_scaler_y = StandardScaler()
+    ensemble_train_count = 0
+    logger.info("Ensemble initialized: %s", list(ensemble_models.keys()))
+    return StatusResponse(status="initialized", model_type="ensemble")
+
+
+@app.post("/partial-train-ensemble", response_model=StatusResponse)
+def partial_train_ensemble(request: PartialTrainRequest):
+    global ensemble_train_count
+    _require_ensemble()
+
+    X = np.array(request.features).reshape(1, -1)
+    y = np.array([[request.target]])
+
+    ensemble_scaler_x.partial_fit(X)
+    ensemble_scaler_y.partial_fit(y)
+
+    if _scaler_fitted(ensemble_scaler_x) and _scaler_fitted(ensemble_scaler_y):
+        X_scaled = ensemble_scaler_x.transform(X)
+        y_scaled = ensemble_scaler_y.transform(y).ravel()
+        for m in ensemble_models.values():
+            m.partial_fit(X_scaled, y_scaled)
+
+    ensemble_train_count += 1
+    return StatusResponse(status="trained", model_type="ensemble")
+
+
+@app.post("/predict-ensemble", response_model=EnsemblePredictionResponse)
+def predict_ensemble(request: PredictRequest):
+    _require_ensemble()
+
+    if not all(_model_is_trained(m) for m in ensemble_models.values()):
+        raise HTTPException(
+            status_code=400,
+            detail="Ensemble has not been trained yet. Call POST /partial-train-ensemble at least once.",
+        )
+
+    if not (_scaler_fitted(ensemble_scaler_x) and _scaler_fitted(ensemble_scaler_y)):
+        raise HTTPException(
+            status_code=400,
+            detail="Ensemble scalers not yet fitted.",
+        )
+
+    X = np.array(request.features).reshape(1, -1)
+    X_scaled = ensemble_scaler_x.transform(X)
+
+    individual: list[float] = []
+    for m in ensemble_models.values():
+        pred_scaled = m.predict(X_scaled).reshape(1, -1)
+        pred = float(ensemble_scaler_y.inverse_transform(pred_scaled)[0][0])
+        if math.isnan(pred) or math.isinf(pred):
+            pred = 0.0
+        individual.append(pred)
+
+    avg_prediction = float(np.mean(individual))
+    if math.isnan(avg_prediction) or math.isinf(avg_prediction):
+        raise HTTPException(status_code=500, detail="Ensemble produced NaN/Inf.")
+
+    return EnsemblePredictionResponse(prediction=avg_prediction, individual=individual)
+
+
+@app.post("/save-model-ensemble", response_model=SaveModelResponse)
+def save_model_ensemble():
+    _require_ensemble()
+
+    for name, m in ensemble_models.items():
+        if not _check_model_healthy(m):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Ensemble model '{name}' contains NaN/Inf — cannot save.",
+            )
+
+    model_id = str(uuid.uuid4())
+    snapshot = {
+        "models": dict(ensemble_models),
+        "scaler_x": ensemble_scaler_x,
+        "scaler_y": ensemble_scaler_y,
+        "metadata": {
+            "model_type": "ensemble",
+            "train_count": ensemble_train_count,
+            "feature_names": FEATURE_NAMES,
+            "model_names": list(ensemble_models.keys()),
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+
+    path = MODELS_DIR / f"{model_id}.joblib"
+    joblib.dump(snapshot, path, compress=3)
+    logger.info(f"Ensemble saved: {model_id} ({ensemble_train_count} steps)")
+
+    return SaveModelResponse(model_id=model_id, model_type="ensemble", train_count=ensemble_train_count)
+
+
+@app.post("/load-model-ensemble", response_model=StatusResponse)
+def load_model_ensemble(request: LoadModelRequest):
+    global ensemble_models, ensemble_scaler_x, ensemble_scaler_y, ensemble_train_count
+
+    path = MODELS_DIR / f"{request.model_id}.joblib"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Model snapshot '{request.model_id}' not found.")
+
+    snapshot = joblib.load(path)
+    if "models" not in snapshot:
+        raise HTTPException(status_code=400, detail="Snapshot is not an ensemble snapshot.")
+
+    ensemble_models = snapshot["models"]
+    ensemble_scaler_x = snapshot["scaler_x"]
+    ensemble_scaler_y = snapshot["scaler_y"]
+    meta = snapshot.get("metadata", {})
+    ensemble_train_count = meta.get("train_count", 0)
+
+    for name, m in ensemble_models.items():
+        if not _check_model_healthy(m):
+            ensemble_models = {}
+            raise HTTPException(
+                status_code=400,
+                detail=f"Ensemble model '{name}' contains NaN/Inf — snapshot is corrupted.",
+            )
+
+    logger.info(f"Ensemble loaded: {request.model_id} ({ensemble_train_count} steps, {list(ensemble_models.keys())})")
+    return StatusResponse(status="loaded", model_type="ensemble")
 
 
 # ---------------------------------------------------------------------------

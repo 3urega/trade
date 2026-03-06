@@ -13,6 +13,7 @@ const MODELS: { value: ModelType; label: string }[] = [
   { value: 'sgd_regressor', label: 'SGD Regressor' },
   { value: 'passive_aggressive', label: 'Passive Aggressive' },
   { value: 'mlp_regressor', label: 'MLP (neural network)' },
+  { value: 'ensemble', label: 'Ensemble (3 models)' },
 ];
 
 interface Props {

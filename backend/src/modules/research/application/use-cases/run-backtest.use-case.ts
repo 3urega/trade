@@ -13,6 +13,8 @@ import { PredictionError } from '../../domain/value-objects/prediction-error.js'
 import { FeatureEngineeringService } from '../feature-engineering.service.js';
 import { RunBacktestDto } from '../dtos/run-backtest.dto.js';
 import { BacktestSessionResponseDto } from '../dtos/backtest-response.dto.js';
+import { ModelType } from '../../domain/enums.js';
+import type { FeatureVector } from '../../domain/value-objects/feature-vector.js';
 
 @Injectable()
 export class RunBacktestUseCase {
@@ -54,7 +56,17 @@ export class RunBacktestUseCase {
     await this.backtestRepo.save(session);
 
     try {
-      await this.mlService.initialize(dto.modelType);
+      const isEnsemble = dto.modelType === ModelType.ENSEMBLE;
+      const mlPredict = (x: FeatureVector) =>
+        isEnsemble ? this.mlService.predictEnsemble(x) : this.mlService.predict(x);
+      const mlTrain = (x: FeatureVector, y: number) =>
+        isEnsemble ? this.mlService.partialTrainEnsemble(x, y) : this.mlService.partialTrain(x, y);
+
+      if (isEnsemble) {
+        await this.mlService.initializeEnsemble();
+      } else {
+        await this.mlService.initialize(dto.modelType);
+      }
 
       const predictionRecords: PredictionRecord[] = [];
       const predictedReturns: number[] = [];
@@ -64,16 +76,12 @@ export class RunBacktestUseCase {
       for (let i = startIndex; i < candles.length - 1; i++) {
         const featureVec = this.features.build(candles, i);
 
-        // Target: log-return from candle[i] to candle[i+1]
         const logReturnTarget = Math.log(candles[i + 1].close / candles[i].close);
 
-        // 1. PREDICT first (walk-forward: model must not have seen candle i yet)
-        // Skip predict on first iteration — model needs at least one partial_fit before predict
         if (i > startIndex) {
           try {
-            const predictedLogReturn = await this.mlService.predict(featureVec);
+            const predictedLogReturn = await mlPredict(featureVec);
 
-            // Predicted close[i+1] = close[i] * exp(predictedLogReturn)
             const predictedPrice = candles[i].close * Math.exp(predictedLogReturn);
             const actualPrice = candles[i + 1].close;
             const previousClose = candles[i].close;
@@ -102,17 +110,17 @@ export class RunBacktestUseCase {
           }
         }
 
-        // 2. TRAIN after predicting (never train before predict on the same step)
-        await this.mlService.partialTrain(featureVec, logReturnTarget);
+        await mlTrain(featureVec, logReturnTarget);
       }
 
       await this.predictionRepo.saveBatch(predictionRecords);
 
       session.setPredictionCorrelation(pearsonCorrelation(predictedReturns, actualReturns));
 
-      // Persist the trained model snapshot so it can be reused in forward tests
       try {
-        const snapshotId = await this.mlService.saveModel();
+        const snapshotId = isEnsemble
+          ? await this.mlService.saveEnsemble()
+          : await this.mlService.saveModel();
         session.setModelSnapshotId(snapshotId);
       } catch (snapshotErr) {
         this.logger.warn(`Could not save model snapshot: ${String(snapshotErr)}`);

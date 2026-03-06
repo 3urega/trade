@@ -9,4 +9,10 @@ export interface MlServicePort {
   predict(x: FeatureVector): Promise<number>;
   saveModel(): Promise<string>;
   loadModel(modelId: string): Promise<void>;
+
+  initializeEnsemble(): Promise<void>;
+  partialTrainEnsemble(x: FeatureVector, y: number): Promise<void>;
+  predictEnsemble(x: FeatureVector): Promise<number>;
+  saveEnsemble(): Promise<string>;
+  loadEnsemble(modelId: string): Promise<void>;
 }
