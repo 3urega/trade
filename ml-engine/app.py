@@ -4,7 +4,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from sklearn.linear_model import SGDRegressor, PassiveAggressiveRegressor
+from sklearn.linear_model import SGDRegressor, PassiveAggressiveRegressor, SGDClassifier
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler
 import numpy as np
@@ -96,6 +96,10 @@ class EnsemblePredictionResponse(BaseModel):
     individual: list[float]
 
 
+class ProbabilityResponse(BaseModel):
+    probability: float
+
+
 class DiagnosticsResponse(BaseModel):
     model_type: str | None
     train_count: int
@@ -152,6 +156,15 @@ SUPPORTED_MODELS = {
         learning_rate="adaptive",
         learning_rate_init=0.001,
         max_iter=1,
+        warm_start=True,
+        random_state=42,
+    ),
+    "sgd_classifier": lambda: SGDClassifier(
+        loss="log_loss",
+        penalty="l2",
+        alpha=0.0001,
+        max_iter=1,
+        tol=None,
         warm_start=True,
         random_state=42,
     ),
@@ -295,6 +308,67 @@ def predict(request: PredictRequest):
         raise HTTPException(status_code=500, detail="Model produced NaN/Inf — likely diverged.")
 
     return PredictionResponse(prediction=prediction)
+
+
+# ---------------------------------------------------------------------------
+# Classifier endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/partial-train-classifier", response_model=StatusResponse)
+def partial_train_classifier(request: PartialTrainRequest):
+    global train_count
+    _require_model()
+
+    if not hasattr(model, "predict_proba"):
+        raise HTTPException(
+            status_code=400,
+            detail="Active model does not support classification. Call POST /initialize with model_type=sgd_classifier.",
+        )
+
+    X = np.array(request.features).reshape(1, -1)
+    y_cls = int(request.target)
+
+    scaler_x.partial_fit(X)
+
+    if _scaler_fitted(scaler_x):
+        X_scaled = scaler_x.transform(X)
+        model.partial_fit(X_scaled, [y_cls], classes=[0, 1])
+
+    train_count += 1
+    return StatusResponse(status="trained", model_type=model_type_active)
+
+
+@app.post("/predict-proba", response_model=ProbabilityResponse)
+def predict_proba_endpoint(request: PredictRequest):
+    _require_model()
+
+    if not hasattr(model, "predict_proba"):
+        raise HTTPException(
+            status_code=400,
+            detail="Active model does not support predict_proba. Initialize with model_type=sgd_classifier.",
+        )
+
+    if not _model_is_trained(model):
+        raise HTTPException(
+            status_code=400,
+            detail="Classifier has not been trained yet. Call POST /partial-train-classifier at least once.",
+        )
+
+    if not _scaler_fitted(scaler_x):
+        raise HTTPException(
+            status_code=400,
+            detail="Scaler not yet fitted. Call POST /partial-train-classifier at least once.",
+        )
+
+    X = np.array(request.features).reshape(1, -1)
+    X_scaled = scaler_x.transform(X)
+    proba = model.predict_proba(X_scaled)  # shape: [[prob_0, prob_1]]
+    prob_big_move = float(proba[0][1])
+
+    if math.isnan(prob_big_move) or math.isinf(prob_big_move):
+        raise HTTPException(status_code=500, detail="Classifier produced NaN/Inf probability.")
+
+    return ProbabilityResponse(probability=prob_big_move)
 
 
 # ---------------------------------------------------------------------------

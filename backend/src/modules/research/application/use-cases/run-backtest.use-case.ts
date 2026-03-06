@@ -13,7 +13,7 @@ import { PredictionError } from '../../domain/value-objects/prediction-error.js'
 import { FeatureEngineeringService } from '../feature-engineering.service.js';
 import { RunBacktestDto } from '../dtos/run-backtest.dto.js';
 import { BacktestSessionResponseDto } from '../dtos/backtest-response.dto.js';
-import { ModelType } from '../../domain/enums.js';
+import { ModelType, PredictionMode } from '../../domain/enums.js';
 import type { FeatureVector } from '../../domain/value-objects/feature-vector.js';
 
 @Injectable()
@@ -41,6 +41,10 @@ export class RunBacktestUseCase {
       );
     }
 
+    const predictionMode = dto.predictionMode ?? PredictionMode.RETURN;
+    const volatilityThreshold = dto.volatilityThreshold ?? 0.005;
+    const isVolatility = predictionMode === PredictionMode.VOLATILITY;
+
     const session = BacktestSession.create(
       dto.symbol,
       dto.timeframe,
@@ -49,6 +53,8 @@ export class RunBacktestUseCase {
       dto.modelType,
       dto.warmupPeriod,
     );
+    session.setPredictionMode(predictionMode);
+    if (isVolatility) session.setVolatilityThreshold(volatilityThreshold);
 
     await this.backtestRepo.save(session);
 
@@ -57,12 +63,22 @@ export class RunBacktestUseCase {
 
     try {
       const isEnsemble = dto.modelType === ModelType.ENSEMBLE;
-      const mlPredict = (x: FeatureVector) =>
-        isEnsemble ? this.mlService.predictEnsemble(x) : this.mlService.predict(x);
-      const mlTrain = (x: FeatureVector, y: number) =>
-        isEnsemble ? this.mlService.partialTrainEnsemble(x, y) : this.mlService.partialTrain(x, y);
 
-      if (isEnsemble) {
+      const mlTrain = (x: FeatureVector, y: number): Promise<void> => {
+        if (isVolatility) return this.mlService.partialTrainClassifier(x, y);
+        if (isEnsemble) return this.mlService.partialTrainEnsemble(x, y);
+        return this.mlService.partialTrain(x, y);
+      };
+
+      const mlRawPredict = (x: FeatureVector): Promise<number> => {
+        if (isVolatility) return this.mlService.predictProba(x);
+        if (isEnsemble) return this.mlService.predictEnsemble(x);
+        return this.mlService.predict(x);
+      };
+
+      if (isVolatility) {
+        await this.mlService.initialize(ModelType.SGD_CLASSIFIER);
+      } else if (isEnsemble) {
         await this.mlService.initializeEnsemble();
       } else {
         await this.mlService.initialize(dto.modelType);
@@ -77,10 +93,18 @@ export class RunBacktestUseCase {
         const featureVec = this.features.build(candles, i);
 
         const logReturnTarget = Math.log(candles[i + 1].close / candles[i].close);
+        const trainTarget = isVolatility
+          ? (Math.abs(candles[i + 1].close - candles[i].close) / candles[i].close > volatilityThreshold ? 1 : 0)
+          : logReturnTarget;
 
         if (i > startIndex) {
           try {
-            const predictedLogReturn = await mlPredict(featureVec);
+            const rawPrediction = await mlRawPredict(featureVec);
+
+            // Convert probability + direction to pseudo log return so processTick works unchanged
+            const predictedLogReturn = isVolatility
+              ? Math.sign(featureVec.features[1]) * rawPrediction
+              : rawPrediction;
 
             const predictedPrice = candles[i].close * Math.exp(predictedLogReturn);
             const actualPrice = candles[i + 1].close;
@@ -110,7 +134,7 @@ export class RunBacktestUseCase {
           }
         }
 
-        await mlTrain(featureVec, logReturnTarget);
+        await mlTrain(featureVec, trainTarget);
       }
 
       await this.predictionRepo.saveBatch(predictionRecords);
@@ -118,7 +142,7 @@ export class RunBacktestUseCase {
       session.setPredictionCorrelation(pearsonCorrelation(predictedReturns, actualReturns));
 
       try {
-        const snapshotId = isEnsemble
+        const snapshotId = isEnsemble && !isVolatility
           ? await this.mlService.saveEnsemble()
           : await this.mlService.saveModel();
         session.setModelSnapshotId(snapshotId);

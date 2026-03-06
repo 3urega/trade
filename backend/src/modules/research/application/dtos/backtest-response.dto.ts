@@ -71,6 +71,8 @@ export class BacktestSessionResponseDto {
   @ApiPropertyOptional({ type: TradingMetricsResponseDto })
   tradingMetrics?: TradingMetricsResponseDto;
   @ApiPropertyOptional() predictionCorrelation?: number;
+  @ApiPropertyOptional() predictionMode?: string;
+  @ApiPropertyOptional() volatilityThreshold?: number;
 
   static fromDomain(
     session: BacktestSession,
@@ -115,6 +117,8 @@ export class BacktestSessionResponseDto {
       }));
     }
     dto.predictionCorrelation = session.predictionCorrelation;
+    dto.predictionMode = session.predictionMode;
+    dto.volatilityThreshold = session.volatilityThreshold;
     if (session.tradingMetrics) {
       const tm = session.tradingMetrics;
       dto.tradingMetrics = {

@@ -51,6 +51,8 @@ export class BacktestTypeOrmRepository implements BacktestRepositoryPort {
       ? (session.tradingMetrics as unknown as Record<string, unknown>)
       : null;
     orm.predictionCorrelation = session.predictionCorrelation ?? null;
+    orm.predictionMode = session.predictionMode ?? null;
+    orm.volatilityThreshold = session.volatilityThreshold ?? null;
     return orm;
   }
 
@@ -77,6 +79,8 @@ export class BacktestTypeOrmRepository implements BacktestRepositoryPort {
           ? (orm.tradingMetrics as unknown as TradingMetrics)
           : undefined,
         predictionCorrelation: orm.predictionCorrelation ?? undefined,
+        predictionMode: orm.predictionMode ?? undefined,
+        volatilityThreshold: orm.volatilityThreshold ?? undefined,
       },
       new UniqueEntityId(orm.id),
     );

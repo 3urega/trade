@@ -15,4 +15,7 @@ export interface MlServicePort {
   predictEnsemble(x: FeatureVector): Promise<number>;
   saveEnsemble(): Promise<string>;
   loadEnsemble(modelId: string): Promise<void>;
+
+  partialTrainClassifier(x: FeatureVector, y: number): Promise<void>;
+  predictProba(x: FeatureVector): Promise<number>;
 }

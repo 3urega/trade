@@ -1,6 +1,6 @@
 import type {
   Trade, Portfolio, BacktestSession, LoadCandlesResult, CandleDatasetSummary,
-  CandleData, Timeframe, ModelType, TradingConfig, AvailableModel,
+  CandleData, Timeframe, ModelType, PredictionMode, TradingConfig, AvailableModel,
   Preset, PresetMetrics, CreatePresetInput, UpdatePresetInput,
   ResearchExperiment, CreateExperimentInput,
 } from '../types/index.ts';
@@ -68,6 +68,8 @@ export async function runBacktest(payload: {
   to: string;
   modelType: ModelType;
   warmupPeriod: number;
+  predictionMode?: PredictionMode;
+  volatilityThreshold?: number;
 }): Promise<BacktestSession> {
   const res = await fetch(`${BASE}/research/backtest`, {
     method: 'POST',

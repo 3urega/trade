@@ -22,6 +22,8 @@ interface BacktestSessionProps {
   errorMessage?: string;
   tradingMetrics?: TradingMetrics;
   predictionCorrelation?: number;
+  predictionMode?: string;
+  volatilityThreshold?: number;
 }
 
 export class BacktestSession extends AggregateRoot<BacktestSessionProps> {
@@ -107,6 +109,8 @@ export class BacktestSession extends AggregateRoot<BacktestSessionProps> {
   get errorMessage(): string | undefined { return this.props.errorMessage; }
   get tradingMetrics(): TradingMetrics | undefined { return this.props.tradingMetrics; }
   get predictionCorrelation(): number | undefined { return this.props.predictionCorrelation; }
+  get predictionMode(): string | undefined { return this.props.predictionMode; }
+  get volatilityThreshold(): number | undefined { return this.props.volatilityThreshold; }
 
   setModelSnapshotId(id: string): void {
     this.props.modelSnapshotId = id;
@@ -118,6 +122,14 @@ export class BacktestSession extends AggregateRoot<BacktestSessionProps> {
 
   setPredictionCorrelation(value: number): void {
     this.props.predictionCorrelation = value;
+  }
+
+  setPredictionMode(mode: string): void {
+    this.props.predictionMode = mode;
+  }
+
+  setVolatilityThreshold(value: number): void {
+    this.props.volatilityThreshold = value;
   }
 
   start(): void {

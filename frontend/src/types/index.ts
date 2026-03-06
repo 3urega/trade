@@ -41,7 +41,8 @@ export interface PriceUpdate {
 // --- Research / Backtest types ---
 
 export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
-export type ModelType = 'sgd_regressor' | 'passive_aggressive' | 'mlp_regressor' | 'ensemble';
+export type ModelType = 'sgd_regressor' | 'passive_aggressive' | 'mlp_regressor' | 'ensemble' | 'sgd_classifier';
+export type PredictionMode = 'RETURN' | 'VOLATILITY';
 export type BacktestStatus = 'CREATED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 export type SessionType = 'BACKTEST' | 'FORWARD_TEST';
 
@@ -124,6 +125,8 @@ export interface BacktestSession {
   predictions?: PredictionRecord[];
   tradingMetrics?: TradingMetrics;
   predictionCorrelation?: number;
+  predictionMode?: PredictionMode;
+  volatilityThreshold?: number;
 }
 
 export interface LoadCandlesResult {

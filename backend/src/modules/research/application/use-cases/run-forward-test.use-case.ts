@@ -16,7 +16,7 @@ import { FeatureEngineeringService } from '../feature-engineering.service.js';
 import { RunForwardTestDto } from '../dtos/run-forward-test.dto.js';
 import { ForwardTestResponseDto } from '../dtos/backtest-response.dto.js';
 import { UniqueEntityId } from '../../../../shared/domain/unique-entity-id.js';
-import { BacktestStatus, ModelType } from '../../domain/enums.js';
+import { BacktestStatus, ModelType, PredictionMode } from '../../domain/enums.js';
 
 const DEFAULT_INITIAL_CAPITAL = 10000;
 
@@ -92,7 +92,9 @@ export class RunForwardTestUseCase {
 
     try {
       const isEnsemble = sourceSession.modelType === ModelType.ENSEMBLE;
-      if (isEnsemble) {
+      const isVolatility = sourceSession.predictionMode === PredictionMode.VOLATILITY;
+
+      if (isEnsemble && !isVolatility) {
         await this.mlService.loadEnsemble(sourceSession.modelSnapshotId);
       } else {
         await this.mlService.loadModel(sourceSession.modelSnapshotId);
@@ -101,7 +103,8 @@ export class RunForwardTestUseCase {
       const predictionRecords: PredictionRecord[] = [];
       const startIndex = minFeatureIndex;
       const initialCapital = dto.initialCapital ?? DEFAULT_INITIAL_CAPITAL;
-      const signalThreshold = dto.signalThreshold ?? 0.0005;
+      // VOLATILITY mode uses probability as pseudo signal: default threshold is 0.6
+      const signalThreshold = dto.signalThreshold ?? (isVolatility ? 0.6 : 0.0005);
       const feeRate = dto.feeRate ?? 0.001;
       const positionSizePct = dto.positionSizePct ?? 0.5;
       const slMultiplier = dto.slMultiplier ?? 2;
@@ -113,9 +116,15 @@ export class RunForwardTestUseCase {
         let featureVec: ReturnType<typeof this.features.build>;
         try {
           featureVec = this.features.build(candles, i);
-          predictedLogReturn = isEnsemble
-            ? await this.mlService.predictEnsemble(featureVec)
-            : await this.mlService.predict(featureVec);
+          if (isVolatility) {
+            const probability = await this.mlService.predictProba(featureVec);
+            const direction = Math.sign(featureVec.features[1]); // logReturn1
+            predictedLogReturn = direction * probability;
+          } else if (isEnsemble) {
+            predictedLogReturn = await this.mlService.predictEnsemble(featureVec);
+          } else {
+            predictedLogReturn = await this.mlService.predict(featureVec);
+          }
         } catch {
           continue;
         }

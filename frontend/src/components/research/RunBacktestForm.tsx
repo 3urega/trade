@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { runBacktest } from '../../services/api.ts';
-import type { BacktestSession, Timeframe, ModelType } from '../../types/index.ts';
+import type { BacktestSession, Timeframe, ModelType, PredictionMode } from '../../types/index.ts';
 
 const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d'];
 const MODELS: { value: ModelType; label: string }[] = [
@@ -8,6 +8,7 @@ const MODELS: { value: ModelType; label: string }[] = [
   { value: 'passive_aggressive', label: 'Passive Aggressive' },
   { value: 'mlp_regressor', label: 'MLP Regressor (neural network)' },
   { value: 'ensemble', label: 'Ensemble (3 models)' },
+  { value: 'sgd_classifier', label: 'SGD Classifier (volatility)' },
 ];
 
 interface Props {
@@ -41,8 +42,20 @@ export function RunBacktestForm({ onCompleted, prefilledSymbol, prefilledTimefra
   }, [prefilledTo]);
   const [modelType, setModelType] = useState<ModelType>('sgd_regressor');
   const [warmupPeriod, setWarmupPeriod] = useState(20);
+  const [predictionMode, setPredictionMode] = useState<PredictionMode>('RETURN');
+  const [volatilityThreshold, setVolatilityThreshold] = useState(0.005);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function handlePredictionModeChange(mode: PredictionMode) {
+    setPredictionMode(mode);
+    if (mode === 'VOLATILITY' && modelType !== 'sgd_classifier') {
+      setModelType('sgd_classifier');
+    }
+    if (mode === 'RETURN' && modelType === 'sgd_classifier') {
+      setModelType('sgd_regressor');
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -56,6 +69,8 @@ export function RunBacktestForm({ onCompleted, prefilledSymbol, prefilledTimefra
         to: new Date(to).toISOString(),
         modelType,
         warmupPeriod,
+        predictionMode,
+        volatilityThreshold: predictionMode === 'VOLATILITY' ? volatilityThreshold : undefined,
       });
       onCompleted(session);
     } catch (err) {
@@ -121,6 +136,32 @@ export function RunBacktestForm({ onCompleted, prefilledSymbol, prefilledTimefra
               className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-cyan-500"
             />
           </div>
+          <div className="col-span-2">
+            <label className="text-xs text-gray-500 block mb-1">Prediction mode</label>
+            <div className="flex gap-2">
+              {(['RETURN', 'VOLATILITY'] as PredictionMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => handlePredictionModeChange(mode)}
+                  className={`flex-1 py-1.5 rounded text-xs font-medium border transition-colors ${
+                    predictionMode === mode
+                      ? mode === 'RETURN'
+                        ? 'bg-violet-700/60 border-violet-500 text-violet-200'
+                        : 'bg-amber-700/50 border-amber-500 text-amber-200'
+                      : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
+                  }`}
+                >
+                  {mode === 'RETURN' ? 'Return (regression)' : 'Volatility (classifier)'}
+                </button>
+              ))}
+            </div>
+            {predictionMode === 'VOLATILITY' && (
+              <p className="text-[10px] text-amber-500/80 mt-1">
+                Predice si habrá movimiento grande. Auto-selecciona SGD Classifier.
+              </p>
+            )}
+          </div>
           <div>
             <label className="text-xs text-gray-500 block mb-1">Model</label>
             <select
@@ -142,6 +183,21 @@ export function RunBacktestForm({ onCompleted, prefilledSymbol, prefilledTimefra
               className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-cyan-500"
             />
           </div>
+          {predictionMode === 'VOLATILITY' && (
+            <div className="col-span-2">
+              <label className="text-xs text-gray-500 block mb-1">Volatility threshold</label>
+              <input
+                type="number"
+                min={0.001}
+                max={0.1}
+                step={0.001}
+                value={volatilityThreshold}
+                onChange={(e) => setVolatilityThreshold(Number(e.target.value))}
+                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-cyan-500"
+              />
+              <span className="text-[10px] text-gray-600">movimiento mínimo para clase 1, ej. 0.005 = 0.5%</span>
+            </div>
+          )}
         </div>
 
         <button

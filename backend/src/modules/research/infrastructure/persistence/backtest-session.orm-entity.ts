@@ -52,4 +52,10 @@ export class BacktestSessionOrmEntity {
 
   @Column({ name: 'prediction_correlation', type: 'float', nullable: true })
   predictionCorrelation!: number | null;
+
+  @Column({ name: 'prediction_mode', type: 'varchar', length: 20, nullable: true })
+  predictionMode!: string | null;
+
+  @Column({ name: 'volatility_threshold', type: 'float', nullable: true })
+  volatilityThreshold!: number | null;
 }

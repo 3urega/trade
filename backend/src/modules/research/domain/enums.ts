@@ -19,6 +19,12 @@ export enum ModelType {
   PASSIVE_AGGRESSIVE = 'passive_aggressive',
   MLP_REGRESSOR = 'mlp_regressor',
   ENSEMBLE = 'ensemble',
+  SGD_CLASSIFIER = 'sgd_classifier',
+}
+
+export enum PredictionMode {
+  RETURN = 'RETURN',
+  VOLATILITY = 'VOLATILITY',
 }
 
 export enum SessionType {

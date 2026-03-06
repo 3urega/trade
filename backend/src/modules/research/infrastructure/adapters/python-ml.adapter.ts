@@ -68,4 +68,15 @@ export class PythonMlAdapter implements MlServicePort {
     await this.client.post('/load-model-ensemble', { model_id: modelId });
     this.logger.log(`ML ensemble snapshot loaded: ${modelId}`);
   }
+
+  async partialTrainClassifier(x: FeatureVector, y: number): Promise<void> {
+    await this.client.post('/partial-train-classifier', { features: x.features, target: y });
+  }
+
+  async predictProba(x: FeatureVector): Promise<number> {
+    const res = await this.client.post<{ probability: number }>('/predict-proba', {
+      features: x.features,
+    });
+    return res.data.probability;
+  }
 }
