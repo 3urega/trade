@@ -4,21 +4,30 @@ import { PriceChart } from './components/PriceChart.tsx';
 import { TradeList } from './components/TradeList.tsx';
 import { ResearchPage } from './components/research/ResearchPage.tsx';
 import { TradingConfigModal } from './components/TradingConfigModal.tsx';
-import { fetchTrades, fetchPortfolio, fetchSignalStatus, fetchSimulationWallet } from './services/api.ts';
-import { onTradeExecuted, onPortfolioUpdate, onSocketConnect, onSocketDisconnect } from './services/socket.ts';
-import type { Trade, Portfolio } from './types/index.ts';
+import { PresetPanel } from './components/PresetPanel.tsx';
+import { CompareView } from './components/CompareView.tsx';
+import {
+  fetchTrades, fetchPortfolio, fetchSignalStatus, fetchPresets,
+} from './services/api.ts';
+import {
+  onTradeExecuted, onPortfolioUpdate, onSocketConnect,
+  onSocketDisconnect, onPresetStateChange,
+} from './services/socket.ts';
+import type { Trade, Portfolio, Preset } from './types/index.ts';
 
-type AppSection = 'trading' | 'research';
-
-const SIMULATION_WALLET_ID_KEY = 'sim_wallet_id';
-
-const PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
+type AppSection = 'trading' | 'compare' | 'research';
 
 export default function App() {
-  const [trades, setTrades] = useState<Trade[]>([]);
+  // ─── preset state ─────────────────────────────────────────────────────────
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
+
+  // ─── portfolio / trade state for the selected preset ──────────────────────
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [walletId, setWalletId] = useState<string | null>(null);
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [dataLoading, setDataLoading] = useState(false);
+
+  // ─── ui state ─────────────────────────────────────────────────────────────
   const [selectedPair, setSelectedPair] = useState('SOL/USDT');
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [section, setSection] = useState<AppSection>('trading');
@@ -27,7 +36,14 @@ export default function App() {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [, setTick] = useState(0);
 
+  // ─── derived ──────────────────────────────────────────────────────────────
+  const selectedPreset = presets.find((p) => p.id === selectedPresetId) ?? null;
+  const walletId = selectedPreset?.walletId ?? null;
+  const activePairs = selectedPreset?.config.activePairs ?? ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
+
+  // ─── load portfolio + trades for given wallet ─────────────────────────────
   const loadData = useCallback(async (wid: string) => {
+    setDataLoading(true);
     try {
       const [tradesData, portfolioData] = await Promise.all([
         fetchTrades(wid, 100),
@@ -38,54 +54,38 @@ export default function App() {
     } catch (err) {
       console.error('Failed to load data:', err);
     } finally {
-      setLoading(false);
+      setDataLoading(false);
     }
   }, []);
 
-  // Discover the simulation wallet — validate cached ID, fallback to polling backend
+  // ─── initial load: fetch presets, auto-select first active ───────────────
   useEffect(() => {
-    let cancelled = false;
+    fetchPresets()
+      .then((ps) => {
+        setPresets(ps);
+        const firstActive = ps.find((p) => p.status === 'active');
+        const toSelect = firstActive ?? ps[0] ?? null;
+        if (toSelect) setSelectedPresetId(toSelect.id);
+      })
+      .catch(console.error);
+  }, []);
 
-    const startPolling = () => {
-      const poll = setInterval(async () => {
-        if (cancelled) { clearInterval(poll); return; }
-        try {
-          const { walletId: wid } = await fetchSimulationWallet();
-          if (wid) {
-            localStorage.setItem(SIMULATION_WALLET_ID_KEY, wid);
-            setWalletId(wid);
-            clearInterval(poll);
-            void loadData(wid);
-          }
-        } catch { /* backend not ready yet */ }
-      }, 2000);
-      return poll;
-    };
+  // ─── when selected preset changes → reload data ───────────────────────────
+  useEffect(() => {
+    if (!walletId) return;
+    setPortfolio(null);
+    setTrades([]);
+    void loadData(walletId);
+  }, [walletId, loadData]);
 
-    const stored = localStorage.getItem(SIMULATION_WALLET_ID_KEY);
-    if (stored) {
-      // Validate stored ID is still valid before using it
-      fetchPortfolio(stored)
-        .then((p) => {
-          if (cancelled) return;
-          setWalletId(stored);
-          setPortfolio(p);
-          void fetchTrades(stored, 100).then(setTrades).catch(() => null);
-          setLoading(false);
-        })
-        .catch(() => {
-          // Wallet no longer exists — clear cache and re-discover
-          localStorage.removeItem(SIMULATION_WALLET_ID_KEY);
-          if (!cancelled) startPolling();
-        });
-    } else {
-      startPolling();
+  // keep selected pair within the preset's active pairs list
+  useEffect(() => {
+    if (activePairs.length > 0 && !activePairs.includes(selectedPair)) {
+      setSelectedPair(activePairs[0]);
     }
+  }, [activePairs, selectedPair]);
 
-    return () => { cancelled = true; };
-  }, [loadData]);
-
-  // WebSocket: connection status + re-fetch on reconnect
+  // ─── WebSocket: connection status ─────────────────────────────────────────
   useEffect(() => {
     const offConnect = onSocketConnect(() => {
       setWsStatus('connected');
@@ -95,52 +95,73 @@ export default function App() {
     return () => { offConnect(); offDisconnect(); };
   }, [walletId, loadData]);
 
-  // WebSocket: new trades (solo del wallet actual)
+  // ─── WebSocket: real-time trades ──────────────────────────────────────────
   useEffect(() => {
-    const off = onTradeExecuted((trade) => {
-      if (walletId && trade.walletId === walletId) {
-        setTrades(prev => [trade, ...prev].slice(0, 200));
-        setLastUpdate(new Date());
-      }
+    return onTradeExecuted((trade) => {
+      // Accept if presetId matches OR walletId matches (backward compat)
+      const matches =
+        (selectedPresetId && trade.presetId === selectedPresetId) ||
+        (walletId && trade.walletId === walletId);
+      if (!matches) return;
+      setTrades((prev) => [trade, ...prev].slice(0, 200));
+      setLastUpdate(new Date());
     });
-    return off;
-  }, [walletId]);
+  }, [selectedPresetId, walletId]);
 
-  // WebSocket: portfolio update (balances + P&L en tiempo real)
+  // ─── WebSocket: real-time portfolio ───────────────────────────────────────
   useEffect(() => {
-    const off = onPortfolioUpdate((portfolio) => {
-      if (walletId && portfolio.walletId === walletId) {
-        setPortfolio(portfolio);
-        setLastUpdate(new Date());
-      }
+    return onPortfolioUpdate((update) => {
+      const matches =
+        (selectedPresetId && update.presetId === selectedPresetId) ||
+        (walletId && update.walletId === walletId);
+      if (!matches) return;
+      setPortfolio(update);
+      setLastUpdate(new Date());
     });
-    return off;
-  }, [walletId]);
+  }, [selectedPresetId, walletId]);
 
-  // Polling de respaldo: re-fetch trades+portfolio cada 30s
+  // ─── WebSocket: preset lifecycle → refresh list ───────────────────────────
+  useEffect(() => {
+    return onPresetStateChange(() => {
+      fetchPresets().then(setPresets).catch(console.error);
+    });
+  }, []);
+
+  // ─── Backup polling every 30 s ────────────────────────────────────────────
   useEffect(() => {
     if (!walletId) return;
     const id = setInterval(() => void loadData(walletId), 30_000);
     return () => clearInterval(id);
   }, [walletId, loadData]);
 
-  // Poll ML model status every 10 seconds
+  // ─── ML model status poll ─────────────────────────────────────────────────
   useEffect(() => {
-    const check = () => {
-      void fetchSignalStatus().then((s) => setMlModelReady(s.modelReady));
-    };
+    const check = () => void fetchSignalStatus().then((s) => setMlModelReady(s.modelReady));
     check();
     const id = setInterval(check, 10_000);
     return () => clearInterval(id);
   }, []);
 
-  // Ticker para refrescar el label "hace Xs" cada segundo
+  // ─── "hace Xs" ticker ────────────────────────────────────────────────────
   useEffect(() => {
     if (!lastUpdate) return;
     const id = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(id);
   }, [lastUpdate]);
 
+  // ─── handlers ────────────────────────────────────────────────────────────
+  const handleSelectPreset = (presetId: string) => {
+    if (presetId === selectedPresetId) return;
+    setSelectedPresetId(presetId);
+    // portfolio/trades cleared by the walletId useEffect above
+  };
+
+  const handleCompareSelectPreset = (presetId: string) => {
+    setSelectedPresetId(presetId);
+    setSection('trading');
+  };
+
+  // ─── helpers ─────────────────────────────────────────────────────────────
   const lastUpdateLabel = (() => {
     if (!lastUpdate) return null;
     const secs = Math.floor((Date.now() - lastUpdate.getTime()) / 1000);
@@ -149,7 +170,7 @@ export default function App() {
     return `hace ${Math.floor(secs / 60)}min`;
   })();
 
-  const allTrades = [...trades].sort(
+  const sortedTrades = [...trades].sort(
     (a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime(),
   );
 
@@ -159,36 +180,38 @@ export default function App() {
     error: 'bg-red-500',
   };
 
+  // ─── render ──────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
-      {/* Header */}
-      <header className="border-b border-gray-800 px-6 py-3 flex items-center justify-between">
+
+      {/* ── Header ── */}
+      <header className="border-b border-gray-800 px-6 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-4">
           <span className="text-lg font-bold text-cyan-400">⬡ CryptoSim</span>
           <nav className="flex items-center gap-1">
-            <button
-              onClick={() => setSection('trading')}
-              className={`text-xs px-3 py-1 rounded transition-colors ${
-                section === 'trading'
-                  ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
-                  : 'text-gray-500 hover:text-gray-300'
-              }`}
-            >
-              Trading
-            </button>
-            <button
-              onClick={() => setSection('research')}
-              className={`text-xs px-3 py-1 rounded transition-colors ${
-                section === 'research'
-                  ? 'bg-violet-500/20 text-violet-400 border border-violet-500/40'
-                  : 'text-gray-500 hover:text-gray-300'
-              }`}
-            >
-              Research
-            </button>
+            {(
+              [
+                ['trading', 'Trading', 'cyan'],
+                ['compare', 'Comparativa', 'violet'],
+                ['research', 'Research', 'violet'],
+              ] as const
+            ).map(([id, label, color]) => (
+              <button
+                key={id}
+                onClick={() => setSection(id)}
+                className={`text-xs px-3 py-1 rounded transition-colors ${
+                  section === id
+                    ? `bg-${color}-500/20 text-${color}-400 border border-${color}-500/40`
+                    : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </nav>
         </div>
-        <div className="flex items-center gap-4">
+
+        <div className="flex items-center gap-3">
           {mlModelReady !== null && (
             <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded border ${
               mlModelReady
@@ -196,9 +219,10 @@ export default function App() {
                 : 'bg-gray-800/60 border-gray-700 text-gray-500'
             }`}>
               <span className={`w-1.5 h-1.5 rounded-full ${mlModelReady ? 'bg-green-400' : 'bg-gray-600'}`} />
-              {mlModelReady ? 'ML model active' : 'No ML model'}
+              {mlModelReady ? 'ML activo' : 'Sin modelo'}
             </div>
           )}
+
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <span className={`w-2 h-2 rounded-full ${statusDot[wsStatus]}`} />
             <span>{wsStatus === 'connected' ? 'Live' : wsStatus}</span>
@@ -206,9 +230,11 @@ export default function App() {
               <span className="text-gray-600">· {lastUpdateLabel}</span>
             )}
           </div>
+
+          {/* Gear: edits selected preset config if any, otherwise legacy global config */}
           <button
             onClick={() => setConfigOpen(true)}
-            title="Configuración de trading"
+            title={selectedPreset ? `Configurar: ${selectedPreset.name}` : 'Configuración de trading'}
             className="p-1.5 rounded text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -219,57 +245,104 @@ export default function App() {
         </div>
       </header>
 
-      {configOpen && <TradingConfigModal onClose={() => setConfigOpen(false)} />}
+      {/* ── Config modal: edits the selected preset (or global fallback) ── */}
+      {configOpen && (
+        <TradingConfigModal
+          preset={selectedPreset ?? undefined}
+          onClose={() => setConfigOpen(false)}
+        />
+      )}
 
+      {/* ── Research section ── */}
       {section === 'research' && <ResearchPage />}
 
+      {/* ── Compare section ── */}
+      {section === 'compare' && (
+        <CompareView onSelectPreset={handleCompareSelectPreset} />
+      )}
+
+      {/* ── Trading section ── */}
       <div className={`flex flex-1 overflow-hidden ${section !== 'trading' ? 'hidden' : ''}`}>
+
         {/* Sidebar */}
-        <aside className="w-72 border-r border-gray-800 p-4 flex flex-col gap-4 overflow-y-auto">
-          <div>
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Portfolio</h2>
-            <PortfolioPanel portfolio={portfolio} loading={loading} />
+        <aside className="w-80 border-r border-gray-800 flex flex-col overflow-hidden flex-shrink-0">
+          <div className="flex-1 overflow-y-auto p-4 space-y-5">
+
+            {/* Preset list */}
+            <PresetPanel
+              selectedPresetId={selectedPresetId}
+              onSelectPreset={handleSelectPreset}
+            />
+
+            {/* Divider */}
+            {selectedPreset && (
+              <div className="border-t border-gray-800 pt-4">
+                <PortfolioPanel
+                  portfolio={portfolio}
+                  loading={dataLoading}
+                  presetName={selectedPreset.name}
+                />
+              </div>
+            )}
           </div>
 
+          {/* Wallet ID footer */}
           {walletId && (
-            <div className="mt-auto pt-4 border-t border-gray-800">
-              <p className="text-xs text-gray-600 break-all">
-                Wallet: <span className="text-gray-500">{walletId.slice(0, 8)}…</span>
+            <div className="px-4 py-3 border-t border-gray-800 flex-shrink-0">
+              <p className="text-[10px] text-gray-700">
+                Wallet: <span className="text-gray-600 font-mono">{walletId.slice(0, 8)}…</span>
               </p>
             </div>
           )}
         </aside>
 
-        {/* Main area */}
+        {/* Main content */}
         <main className="flex-1 flex flex-col overflow-hidden">
-          {/* Chart area */}
-          <div className="flex-1 p-4 border-b border-gray-800">
-            <div className="flex gap-2 mb-3">
-              {PAIRS.map(pair => (
-                <button
-                  key={pair}
-                  onClick={() => setSelectedPair(pair)}
-                  className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-                    selectedPair === pair
-                      ? 'border-cyan-500 text-cyan-400 bg-cyan-500/10'
-                      : 'border-gray-700 text-gray-500 hover:border-gray-600'
-                  }`}
-                >
-                  {pair}
-                </button>
-              ))}
-            </div>
-            <PriceChart trades={allTrades} symbol={selectedPair} />
-          </div>
+          {selectedPreset ? (
+            <>
+              {/* Chart area */}
+              <div className="flex-1 p-4 border-b border-gray-800 overflow-hidden">
+                <div className="flex gap-2 mb-3 flex-wrap">
+                  {activePairs.map((pair) => (
+                    <button
+                      key={pair}
+                      onClick={() => setSelectedPair(pair)}
+                      className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                        selectedPair === pair
+                          ? 'border-cyan-500 text-cyan-400 bg-cyan-500/10'
+                          : 'border-gray-700 text-gray-500 hover:border-gray-600'
+                      }`}
+                    >
+                      {pair}
+                    </button>
+                  ))}
+                </div>
+                <PriceChart trades={sortedTrades} symbol={selectedPair} />
+              </div>
 
-          {/* Trade list */}
-          <div className="p-4">
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-              Recent Trades
-              <span className="ml-2 text-gray-700 font-normal">{allTrades.length} total</span>
-            </h2>
-            <TradeList trades={allTrades} />
-          </div>
+              {/* Trade list */}
+              <div className="p-4 flex-shrink-0">
+                <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  Trades recientes
+                  <span className="ml-2 text-gray-700 font-normal">{sortedTrades.length} total</span>
+                </h2>
+                <TradeList trades={sortedTrades} />
+              </div>
+            </>
+          ) : (
+            /* Empty state — no preset selected */
+            <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
+              <div className="w-16 h-16 rounded-full bg-gray-800 flex items-center justify-center">
+                <span className="text-3xl">⬡</span>
+              </div>
+              <div>
+                <p className="text-gray-400 text-sm font-medium">Sin preset seleccionado</p>
+                <p className="text-gray-700 text-xs mt-1">
+                  Crea un preset o selecciona uno de la lista para ver su portfolio y trades.
+                </p>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>

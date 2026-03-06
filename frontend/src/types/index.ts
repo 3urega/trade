@@ -1,6 +1,8 @@
 export interface Trade {
   id: string;
   walletId: string;
+  /** Optional: set when the trade was executed by a specific preset's runner */
+  presetId?: string;
   pair: string;
   type: 'BUY' | 'SELL';
   amount: number;
@@ -14,10 +16,16 @@ export interface Trade {
 export interface BalanceEntry {
   currency: string;
   amount: number;
+  /** USDT value of this position at current market price */
+  valueUsdt: number;
+  /** Percentage of total portfolio */
+  pct: number;
 }
 
 export interface Portfolio {
   walletId: string;
+  /** Optional: set when the update originated from a specific preset's runner */
+  presetId?: string;
   balances: BalanceEntry[];
   totalValueUsdt: number;
   pnl: number;
@@ -181,3 +189,88 @@ export interface AvailableModel {
   directionalAccuracy?: number;
   forwardTests: ForwardTestMetrics[];
 }
+
+// --- Preset types ---
+
+export type PresetStatus = 'active' | 'paused' | 'archived';
+
+export interface PresetConfig {
+  modelSnapshotId: string;
+  signalThreshold: number;
+  positionMode: 'fixed' | 'percent';
+  fixedAmount: number;
+  positionSizePct: number;
+  activePairs: string[];
+  signalTimeframe: string;
+  pollingIntervalMs: number;
+  cooldownMs: number;
+  stopLossPct: number | null;
+  takeProfitPct: number | null;
+  maxDrawdownPct: number | null;
+}
+
+export interface Preset {
+  id: string;
+  name: string;
+  walletId: string;
+  status: PresetStatus;
+  initialCapital: number;
+  config: PresetConfig;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** On-the-fly performance metrics for a single preset */
+export interface PresetMetrics {
+  presetId: string;
+  name: string;
+  status: PresetStatus;
+  walletId: string;
+  initialCapital: number;
+  totalValueUsdt: number;
+  pnl: number;
+  pnlPercent: number;
+  totalTrades: number;
+  buyTrades: number;
+  sellTrades: number;
+  /** null when no completed BUY→SELL round-trips exist yet */
+  winRate: number | null;
+  /** Maximum observed drawdown as a fraction 0–1 */
+  maxDrawdown: number;
+  balances: BalanceEntry[];
+  isRunning: boolean;
+}
+
+export type PresetChangeEvent = 'activated' | 'paused' | 'archived' | 'config_updated';
+
+/** Payload of the `preset_state_change` WebSocket event */
+export interface PresetStateChange {
+  presetId: string;
+  name: string;
+  status: PresetStatus;
+  event: PresetChangeEvent;
+  timestamp: string;
+}
+
+/** Input shape for creating a preset */
+export interface CreatePresetInput {
+  name: string;
+  initialCapital?: number;
+  modelSnapshotId?: string;
+  signalThreshold?: number;
+  positionMode?: 'fixed' | 'percent';
+  fixedAmount?: number;
+  positionSizePct?: number;
+  activePairs?: string[];
+  signalTimeframe?: string;
+  pollingIntervalMs?: number;
+  cooldownMs?: number;
+  stopLossPct?: number | null;
+  takeProfitPct?: number | null;
+  maxDrawdownPct?: number | null;
+}
+
+/** Input shape for updating a preset */
+export type UpdatePresetInput = Partial<CreatePresetInput> & {
+  status?: PresetStatus;
+};

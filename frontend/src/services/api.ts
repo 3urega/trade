@@ -1,4 +1,8 @@
-import type { Trade, Portfolio, BacktestSession, LoadCandlesResult, CandleDatasetSummary, CandleData, Timeframe, ModelType, TradingConfig, AvailableModel } from '../types/index.ts';
+import type {
+  Trade, Portfolio, BacktestSession, LoadCandlesResult, CandleDatasetSummary,
+  CandleData, Timeframe, ModelType, TradingConfig, AvailableModel,
+  Preset, PresetMetrics, CreatePresetInput, UpdatePresetInput,
+} from '../types/index.ts';
 
 const BASE = '/v1';
 
@@ -114,12 +118,6 @@ export async function fetchSignalStatus(): Promise<{ modelReady: boolean }> {
   return res.json() as Promise<{ modelReady: boolean }>;
 }
 
-export async function fetchSimulationWallet(): Promise<{ walletId: string | null }> {
-  const res = await fetch(`${BASE}/trading/simulation-wallet`);
-  if (!res.ok) return { walletId: null };
-  return res.json() as Promise<{ walletId: string | null }>;
-}
-
 export async function fetchTradingConfig(): Promise<TradingConfig> {
   const res = await fetch(`${BASE}/trading/config`);
   if (!res.ok) throw new Error('Failed to fetch trading config');
@@ -143,6 +141,75 @@ export async function fetchAvailableModels(): Promise<AvailableModel[]> {
   const res = await fetch(`${BASE}/trading/available-models`);
   if (!res.ok) throw new Error('Failed to fetch available models');
   return res.json() as Promise<AvailableModel[]>;
+}
+
+// --- Preset API ---
+
+export async function fetchPresets(): Promise<Preset[]> {
+  const res = await fetch(`${BASE}/trading/presets`);
+  if (!res.ok) throw new Error('Failed to fetch presets');
+  return res.json() as Promise<Preset[]>;
+}
+
+export async function fetchPreset(id: string): Promise<Preset> {
+  const res = await fetch(`${BASE}/trading/presets/${id}`);
+  if (!res.ok) throw new Error(`Failed to fetch preset ${id}`);
+  return res.json() as Promise<Preset>;
+}
+
+export async function createPreset(input: CreatePresetInput): Promise<Preset> {
+  const res = await fetch(`${BASE}/trading/presets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const err = await res.json() as { message?: string };
+    throw new Error(err.message ?? 'Failed to create preset');
+  }
+  return res.json() as Promise<Preset>;
+}
+
+export async function updatePreset(id: string, input: UpdatePresetInput): Promise<Preset> {
+  const res = await fetch(`${BASE}/trading/presets/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const err = await res.json() as { message?: string };
+    throw new Error(err.message ?? 'Failed to update preset');
+  }
+  return res.json() as Promise<Preset>;
+}
+
+export async function deletePreset(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/trading/presets/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete preset ${id}`);
+}
+
+export async function activatePreset(id: string): Promise<Preset> {
+  const res = await fetch(`${BASE}/trading/presets/${id}/activate`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to activate preset ${id}`);
+  return res.json() as Promise<Preset>;
+}
+
+export async function pausePreset(id: string): Promise<Preset> {
+  const res = await fetch(`${BASE}/trading/presets/${id}/pause`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to pause preset ${id}`);
+  return res.json() as Promise<Preset>;
+}
+
+export async function fetchPresetMetrics(id: string): Promise<PresetMetrics> {
+  const res = await fetch(`${BASE}/trading/presets/${id}/metrics`);
+  if (!res.ok) throw new Error(`Failed to fetch metrics for preset ${id}`);
+  return res.json() as Promise<PresetMetrics>;
+}
+
+export async function fetchPresetsCompare(): Promise<PresetMetrics[]> {
+  const res = await fetch(`${BASE}/trading/presets/compare`);
+  if (!res.ok) throw new Error('Failed to fetch presets comparison');
+  return res.json() as Promise<PresetMetrics[]>;
 }
 
 export async function fetchCandleSummary(): Promise<CandleDatasetSummary[]> {

@@ -1,12 +1,29 @@
 import { useState, useEffect, useCallback } from 'react';
-import { fetchTradingConfig, updateTradingConfig, fetchAvailableModels } from '../services/api.ts';
-import type { TradingConfig, AvailableModel, ForwardTestMetrics } from '../types/index.ts';
+import {
+  fetchTradingConfig, updateTradingConfig, fetchAvailableModels,
+  createPreset, updatePreset,
+} from '../services/api.ts';
+import type { TradingConfig, AvailableModel, ForwardTestMetrics, Preset, PresetConfig } from '../types/index.ts';
 
 interface Props {
   onClose: () => void;
+  /**
+   * When provided, the modal operates in "edit preset" mode:
+   * it reads/writes the specific preset instead of the global config.
+   */
+  preset?: Preset;
+  /**
+   * When true, the modal is in "create preset" mode: shows name + capital fields
+   * and calls createPreset() on save.
+   */
+  createMode?: boolean;
+  /** Called after a new preset is successfully created. */
+  onCreated?: (preset: Preset) => void;
 }
 
 type Section = 'strategy' | 'execution' | 'risk';
+
+type EditableConfig = TradingConfig & { name?: string; initialCapital?: number };
 
 function fmt(n: number, decimals = 2): string {
   return n.toFixed(decimals);
@@ -80,8 +97,8 @@ function ModelRow({ model, selected, onSelect }: {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-gray-500 text-left">
-                    <th className="pb-1 pr-3">Period</th>
-                    <th className="pb-1 pr-3">Return</th>
+                    <th className="pb-1 pr-3">Periodo</th>
+                    <th className="pb-1 pr-3">Retorno</th>
                     <th className="pb-1 pr-3">Win Rate</th>
                     <th className="pb-1 pr-3">Sharpe</th>
                     <th className="pb-1">Max DD</th>
@@ -107,7 +124,7 @@ function ModelRow({ model, selected, onSelect }: {
               </table>
             </div>
           ) : (
-            <p className="text-xs text-gray-600">No forward tests available for this model.</p>
+            <p className="text-xs text-gray-600">No hay forward tests disponibles para este modelo.</p>
           )}
         </div>
       )}
@@ -115,8 +132,40 @@ function ModelRow({ model, selected, onSelect }: {
   );
 }
 
-export function TradingConfigModal({ onClose }: Props) {
-  const [config, setConfig] = useState<TradingConfig | null>(null);
+function presetConfigToTradingConfig(c: PresetConfig): TradingConfig {
+  return {
+    modelSnapshotId: c.modelSnapshotId,
+    signalThreshold: c.signalThreshold,
+    positionMode: c.positionMode,
+    fixedAmount: c.fixedAmount,
+    positionSizePct: c.positionSizePct,
+    activePairs: c.activePairs,
+    signalTimeframe: c.signalTimeframe,
+    pollingIntervalMs: c.pollingIntervalMs,
+    cooldownMs: c.cooldownMs,
+    stopLossPct: c.stopLossPct,
+    takeProfitPct: c.takeProfitPct,
+    maxDrawdownPct: c.maxDrawdownPct,
+  };
+}
+
+const DEFAULT_CONFIG: TradingConfig = {
+  modelSnapshotId: 'latest',
+  signalThreshold: 0.0005,
+  positionMode: 'fixed',
+  fixedAmount: 0.001,
+  positionSizePct: 0.5,
+  activePairs: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'],
+  signalTimeframe: '5m',
+  pollingIntervalMs: 5000,
+  cooldownMs: 0,
+  stopLossPct: null,
+  takeProfitPct: null,
+  maxDrawdownPct: null,
+};
+
+export function TradingConfigModal({ onClose, preset, createMode = false, onCreated }: Props) {
+  const [config, setConfig] = useState<EditableConfig | null>(null);
   const [models, setModels] = useState<AvailableModel[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -124,10 +173,21 @@ export function TradingConfigModal({ onClose }: Props) {
   const [openSection, setOpenSection] = useState<Section>('strategy');
 
   const load = useCallback(async () => {
-    const [cfg, mdls] = await Promise.all([fetchTradingConfig(), fetchAvailableModels()]);
-    setConfig(cfg);
+    const [mdls, baseCfg] = await Promise.all([
+      fetchAvailableModels(),
+      preset
+        ? Promise.resolve(presetConfigToTradingConfig(preset.config))
+        : createMode
+          ? Promise.resolve(DEFAULT_CONFIG)
+          : fetchTradingConfig(),
+    ]);
     setModels(mdls);
-  }, []);
+    setConfig({
+      ...baseCfg,
+      name: preset?.name ?? (createMode ? '' : undefined),
+      initialCapital: preset?.initialCapital ?? (createMode ? 10000 : undefined),
+    });
+  }, [preset, createMode]);
 
   useEffect(() => {
     void load();
@@ -138,10 +198,55 @@ export function TradingConfigModal({ onClose }: Props) {
     setSaving(true);
     setError(null);
     try {
-      const updated = await updateTradingConfig(config);
-      setConfig(updated);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      if (createMode) {
+        if (!config.name?.trim()) {
+          setError('El nombre del preset es obligatorio.');
+          return;
+        }
+        const created = await createPreset({
+          name: config.name.trim(),
+          initialCapital: config.initialCapital,
+          modelSnapshotId: config.modelSnapshotId,
+          signalThreshold: config.signalThreshold,
+          positionMode: config.positionMode,
+          fixedAmount: config.fixedAmount,
+          positionSizePct: config.positionSizePct,
+          activePairs: config.activePairs,
+          signalTimeframe: config.signalTimeframe,
+          pollingIntervalMs: config.pollingIntervalMs,
+          cooldownMs: config.cooldownMs,
+          stopLossPct: config.stopLossPct,
+          takeProfitPct: config.takeProfitPct,
+          maxDrawdownPct: config.maxDrawdownPct,
+        });
+        onCreated?.(created);
+        onClose();
+      } else if (preset) {
+        const updated = await updatePreset(preset.id, {
+          name: config.name?.trim() || undefined,
+          modelSnapshotId: config.modelSnapshotId,
+          signalThreshold: config.signalThreshold,
+          positionMode: config.positionMode,
+          fixedAmount: config.fixedAmount,
+          positionSizePct: config.positionSizePct,
+          activePairs: config.activePairs,
+          signalTimeframe: config.signalTimeframe,
+          pollingIntervalMs: config.pollingIntervalMs,
+          cooldownMs: config.cooldownMs,
+          stopLossPct: config.stopLossPct,
+          takeProfitPct: config.takeProfitPct,
+          maxDrawdownPct: config.maxDrawdownPct,
+        });
+        setConfig({ ...presetConfigToTradingConfig(updated.config), name: updated.name, initialCapital: updated.initialCapital });
+        setSaved(true);
+        setTimeout(() => { setSaved(false); onClose(); }, 1200);
+      } else {
+        // Legacy mode: update global first-active-preset config
+        const updated = await updateTradingConfig(config);
+        setConfig(updated);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      }
     } catch (err) {
       setError(String(err));
     } finally {
@@ -151,16 +256,18 @@ export function TradingConfigModal({ onClose }: Props) {
 
   const handleReset = async () => {
     try {
-      const fresh = await fetchTradingConfig();
-      setConfig(fresh);
+      if (preset) {
+        setConfig({ ...presetConfigToTradingConfig(preset.config), name: preset.name, initialCapital: preset.initialCapital });
+      } else if (!createMode) {
+        const fresh = await fetchTradingConfig();
+        setConfig(fresh);
+      }
     } catch { /* ignore */ }
   };
 
-  const set = <K extends keyof TradingConfig>(key: K, value: TradingConfig[K]) => {
+  const set = <K extends keyof EditableConfig>(key: K, value: EditableConfig[K]) => {
     setConfig((prev) => prev ? { ...prev, [key]: value } : prev);
   };
-
-  const toggleSection = (s: Section) => setOpenSection((prev) => (prev === s ? s : s));
 
   if (!config) {
     return (
@@ -185,6 +292,12 @@ export function TradingConfigModal({ onClose }: Props) {
     </button>
   );
 
+  const title = createMode
+    ? 'Nuevo Preset'
+    : preset
+      ? `Editar: ${preset.name}`
+      : 'Configuración de Trading';
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
       <div
@@ -193,12 +306,43 @@ export function TradingConfigModal({ onClose }: Props) {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700 flex-shrink-0">
-          <h2 className="text-base font-bold text-gray-100">Configuración de Trading</h2>
+          <h2 className="text-base font-bold text-gray-100">{title}</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300 text-xl leading-none">✕</button>
         </div>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto">
+
+          {/* Preset identity — shown in create and edit modes */}
+          {(createMode || preset) && (
+            <div className="border-b border-gray-700 px-4 py-4 grid grid-cols-2 gap-3">
+              <div className={createMode ? 'col-span-1' : 'col-span-2'}>
+                <label className="block text-xs text-gray-400 mb-1">
+                  Nombre del preset <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={config.name ?? ''}
+                  onChange={(e) => set('name', e.target.value)}
+                  placeholder="Ej: BTC Agresivo, Tendencia SOL…"
+                  className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:border-cyan-500 focus:outline-none"
+                />
+              </div>
+              {createMode && (
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Capital inicial (USDT)</label>
+                  <input
+                    type="number"
+                    step="100"
+                    min="1"
+                    value={config.initialCapital ?? 10000}
+                    onChange={(e) => set('initialCapital', parseFloat(e.target.value) || 10000)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:border-cyan-500 focus:outline-none"
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
           {/* STRATEGY */}
           <div className="border-b border-gray-700">
@@ -209,7 +353,6 @@ export function TradingConfigModal({ onClose }: Props) {
                 <div>
                   <label className="block text-xs text-gray-400 mb-2">Modelo ML</label>
 
-                  {/* Latest option */}
                   <div
                     className={`rounded-lg border px-4 py-2.5 mb-2 cursor-pointer transition-colors ${
                       config.modelSnapshotId === 'latest'
@@ -243,7 +386,7 @@ export function TradingConfigModal({ onClose }: Props) {
                   </div>
                 </div>
 
-                {/* Threshold */}
+                {/* Threshold + position mode */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs text-gray-400 mb-1">Umbral de señal (logReturn)</label>
@@ -422,11 +565,19 @@ export function TradingConfigModal({ onClose }: Props) {
           {error && <p className="text-xs text-red-400 flex-1 mr-4 truncate">{error}</p>}
           {!error && <div className="flex-1" />}
           <div className="flex gap-2">
+            {!createMode && (
+              <button
+                onClick={() => void handleReset()}
+                className="text-xs px-4 py-2 rounded border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+              >
+                Recargar
+              </button>
+            )}
             <button
-              onClick={handleReset}
+              onClick={onClose}
               className="text-xs px-4 py-2 rounded border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
             >
-              Recargar
+              Cancelar
             </button>
             <button
               onClick={() => void handleSave()}
@@ -437,7 +588,13 @@ export function TradingConfigModal({ onClose }: Props) {
                   : 'bg-cyan-600 hover:bg-cyan-500 text-white border border-cyan-500 disabled:opacity-50'
               }`}
             >
-              {saving ? 'Guardando...' : saved ? '✓ Guardado' : 'Guardar'}
+              {saving
+                ? 'Guardando...'
+                : saved
+                  ? '✓ Guardado'
+                  : createMode
+                    ? 'Crear Preset'
+                    : 'Guardar'}
             </button>
           </div>
         </div>
