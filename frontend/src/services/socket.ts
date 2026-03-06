@@ -29,3 +29,15 @@ export function onPriceUpdate(cb: (update: PriceUpdate) => void): () => void {
   getSocket().on('price_update', cb);
   return () => { getSocket().off('price_update', cb); };
 }
+
+export function onSocketConnect(cb: () => void): () => void {
+  const s = getSocket();
+  if (s.connected) cb();
+  s.on('connect', cb);
+  return () => { s.off('connect', cb); };
+}
+
+export function onSocketDisconnect(cb: () => void): () => void {
+  getSocket().on('disconnect', cb);
+  return () => { getSocket().off('disconnect', cb); };
+}

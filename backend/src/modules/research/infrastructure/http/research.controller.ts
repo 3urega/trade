@@ -13,8 +13,10 @@ import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { LoadHistoricalDataUseCase } from '../../application/use-cases/load-historical-data.use-case.js';
 import { RunBacktestUseCase } from '../../application/use-cases/run-backtest.use-case.js';
 import { GetBacktestUseCase } from '../../application/use-cases/get-backtest.use-case.js';
+import { RunForwardTestUseCase } from '../../application/use-cases/run-forward-test.use-case.js';
 import { LoadCandlesDto } from '../../application/dtos/load-candles.dto.js';
 import { RunBacktestDto } from '../../application/dtos/run-backtest.dto.js';
+import { RunForwardTestDto } from '../../application/dtos/run-forward-test.dto.js';
 import { BacktestSessionResponseDto } from '../../application/dtos/backtest-response.dto.js';
 import { CandleDatasetSummaryDto, CandleDataDto } from '../../application/dtos/candle-response.dto.js';
 import { CANDLE_REPOSITORY } from '../../domain/ports/candle-repository.port.js';
@@ -28,6 +30,7 @@ export class ResearchController {
     private readonly loadDataUseCase: LoadHistoricalDataUseCase,
     private readonly runBacktestUseCase: RunBacktestUseCase,
     private readonly getBacktestUseCase: GetBacktestUseCase,
+    private readonly runForwardTestUseCase: RunForwardTestUseCase,
     @Inject(CANDLE_REPOSITORY) private readonly candleRepo: CandleRepositoryPort,
   ) {}
 
@@ -90,6 +93,14 @@ export class ResearchController {
   @ApiResponse({ type: [BacktestSessionResponseDto] })
   async listBacktests(): Promise<BacktestSessionResponseDto[]> {
     return this.getBacktestUseCase.findAll();
+  }
+
+  @Post('forward-test')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Run a forward (out-of-sample) prediction using a trained backtest model' })
+  @ApiResponse({ type: BacktestSessionResponseDto })
+  async runForwardTest(@Body() dto: RunForwardTestDto): Promise<BacktestSessionResponseDto> {
+    return this.runForwardTestUseCase.execute(dto);
   }
 
   @Get('backtest/:id')

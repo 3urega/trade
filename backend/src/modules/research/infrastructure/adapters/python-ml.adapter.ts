@@ -30,4 +30,15 @@ export class PythonMlAdapter implements MlServicePort {
     });
     return res.data.prediction;
   }
+
+  async saveModel(): Promise<string> {
+    const res = await this.client.post<{ model_id: string }>('/save-model');
+    this.logger.log(`ML model snapshot saved: ${res.data.model_id}`);
+    return res.data.model_id;
+  }
+
+  async loadModel(modelId: string): Promise<void> {
+    await this.client.post('/load-model', { model_id: modelId });
+    this.logger.log(`ML model snapshot loaded: ${modelId}`);
+  }
 }

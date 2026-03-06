@@ -3,8 +3,8 @@ import { PortfolioPanel } from './components/PortfolioPanel.tsx';
 import { PriceChart } from './components/PriceChart.tsx';
 import { TradeList } from './components/TradeList.tsx';
 import { ResearchPage } from './components/research/ResearchPage.tsx';
-import { fetchTrades, fetchPortfolio } from './services/api.ts';
-import { onTradeExecuted, onPortfolioUpdate } from './services/socket.ts';
+import { fetchTrades, fetchPortfolio, fetchSignalStatus, fetchSimulationWallet } from './services/api.ts';
+import { onTradeExecuted, onPortfolioUpdate, onSocketConnect, onSocketDisconnect } from './services/socket.ts';
 import type { Trade, Portfolio } from './types/index.ts';
 
 type AppSection = 'trading' | 'research';
@@ -21,6 +21,7 @@ export default function App() {
   const [selectedPair, setSelectedPair] = useState('SOL/USDT');
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [section, setSection] = useState<AppSection>('trading');
+  const [mlModelReady, setMlModelReady] = useState<boolean | null>(null);
 
   const loadData = useCallback(async (wid: string) => {
     try {
@@ -37,7 +38,7 @@ export default function App() {
     }
   }, []);
 
-  // Discover the simulation wallet via first trade
+  // Discover the simulation wallet — first try the dedicated endpoint, fallback to localStorage
   useEffect(() => {
     const stored = localStorage.getItem(SIMULATION_WALLET_ID_KEY);
     if (stored) {
@@ -46,12 +47,10 @@ export default function App() {
       return;
     }
 
-    // Poll until simulation creates the first trade
     const poll = setInterval(async () => {
       try {
-        const initial = await fetchTrades(undefined, 1);
-        if (initial.length > 0) {
-          const wid = initial[0].walletId;
+        const { walletId: wid } = await fetchSimulationWallet();
+        if (wid) {
           localStorage.setItem(SIMULATION_WALLET_ID_KEY, wid);
           setWalletId(wid);
           clearInterval(poll);
@@ -63,10 +62,16 @@ export default function App() {
     return () => clearInterval(poll);
   }, [loadData]);
 
+  // WebSocket: connection status
+  useEffect(() => {
+    const offConnect = onSocketConnect(() => setWsStatus('connected'));
+    const offDisconnect = onSocketDisconnect(() => setWsStatus('error'));
+    return () => { offConnect(); offDisconnect(); };
+  }, []);
+
   // WebSocket: new trades (solo del wallet actual)
   useEffect(() => {
     const off = onTradeExecuted((trade) => {
-      setWsStatus('connected');
       if (walletId && trade.walletId === walletId) {
         setTrades(prev => [trade, ...prev].slice(0, 200));
       }
@@ -77,13 +82,22 @@ export default function App() {
   // WebSocket: portfolio update (balances + P&L en tiempo real)
   useEffect(() => {
     const off = onPortfolioUpdate((portfolio) => {
-      setWsStatus('connected');
       if (walletId && portfolio.walletId === walletId) {
         setPortfolio(portfolio);
       }
     });
     return off;
   }, [walletId]);
+
+  // Poll ML model status every 10 seconds
+  useEffect(() => {
+    const check = () => {
+      void fetchSignalStatus().then((s) => setMlModelReady(s.modelReady));
+    };
+    check();
+    const id = setInterval(check, 10_000);
+    return () => clearInterval(id);
+  }, []);
 
   const allTrades = [...trades].sort(
     (a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime(),
@@ -124,9 +138,21 @@ export default function App() {
             </button>
           </nav>
         </div>
-        <div className="flex items-center gap-2 text-xs text-gray-500">
-          <span className={`w-2 h-2 rounded-full ${statusDot[wsStatus]}`} />
-          <span>{wsStatus === 'connected' ? 'Live' : wsStatus}</span>
+        <div className="flex items-center gap-4">
+          {mlModelReady !== null && (
+            <div className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded border ${
+              mlModelReady
+                ? 'bg-green-900/20 border-green-700/40 text-green-400'
+                : 'bg-gray-800/60 border-gray-700 text-gray-500'
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${mlModelReady ? 'bg-green-400' : 'bg-gray-600'}`} />
+              {mlModelReady ? 'ML model active' : 'No ML model'}
+            </div>
+          )}
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <span className={`w-2 h-2 rounded-full ${statusDot[wsStatus]}`} />
+            <span>{wsStatus === 'connected' ? 'Live' : wsStatus}</span>
+          </div>
         </div>
       </header>
 

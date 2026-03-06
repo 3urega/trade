@@ -20,6 +20,7 @@ import { FeatureEngineeringService } from './application/feature-engineering.ser
 import { LoadHistoricalDataUseCase } from './application/use-cases/load-historical-data.use-case.js';
 import { RunBacktestUseCase } from './application/use-cases/run-backtest.use-case.js';
 import { GetBacktestUseCase } from './application/use-cases/get-backtest.use-case.js';
+import { RunForwardTestUseCase } from './application/use-cases/run-forward-test.use-case.js';
 
 // Controller
 import { ResearchController } from './infrastructure/http/research.controller.js';
@@ -54,6 +55,13 @@ import { ML_SERVICE_PORT } from './domain/ports/ml-service.port.js';
     LoadHistoricalDataUseCase,
     RunBacktestUseCase,
     GetBacktestUseCase,
+    RunForwardTestUseCase,
+  ],
+  exports: [
+    { provide: ML_SERVICE_PORT, useClass: PythonMlAdapter },
+    { provide: CANDLE_REPOSITORY, useClass: CandleTypeOrmRepository },
+    { provide: BACKTEST_REPOSITORY, useClass: BacktestTypeOrmRepository },
+    FeatureEngineeringService,
   ],
 })
 export class ResearchModule {}

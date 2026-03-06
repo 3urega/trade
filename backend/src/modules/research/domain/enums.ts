@@ -18,3 +18,8 @@ export enum ModelType {
   SGD_REGRESSOR = 'sgd_regressor',
   PASSIVE_AGGRESSIVE = 'passive_aggressive',
 }
+
+export enum SessionType {
+  BACKTEST = 'BACKTEST',
+  FORWARD_TEST = 'FORWARD_TEST',
+}

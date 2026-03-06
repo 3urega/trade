@@ -4,7 +4,7 @@ import { Repository } from 'typeorm';
 import type { BacktestRepositoryPort } from '../../domain/ports/backtest-repository.port.js';
 import { BacktestSession } from '../../domain/entities/backtest-session.entity.js';
 import { UniqueEntityId } from '../../../../shared/domain/unique-entity-id.js';
-import { BacktestStatus, Timeframe, ModelType } from '../../domain/enums.js';
+import { BacktestStatus, Timeframe, ModelType, SessionType } from '../../domain/enums.js';
 import { BacktestMetrics } from '../../domain/value-objects/backtest-metrics.js';
 import { BacktestSessionOrmEntity } from './backtest-session.orm-entity.js';
 
@@ -40,6 +40,9 @@ export class BacktestTypeOrmRepository implements BacktestRepositoryPort {
     orm.warmupPeriod = session.warmupPeriod;
     orm.status = session.status;
     orm.metrics = session.metrics.toSnapshot() as unknown as Record<string, number>;
+    orm.sessionType = session.sessionType;
+    orm.modelSnapshotId = session.modelSnapshotId ?? null;
+    orm.sourceSessionId = session.sourceSessionId ?? null;
     orm.createdAt = session.createdAt;
     orm.completedAt = session.completedAt ?? null;
     orm.errorMessage = session.errorMessage ?? null;
@@ -47,13 +50,7 @@ export class BacktestTypeOrmRepository implements BacktestRepositoryPort {
   }
 
   private toDomain(orm: BacktestSessionOrmEntity): BacktestSession {
-    const snapshot = orm.metrics as {
-      totalPredictions: number;
-      sumAbsoluteError: number;
-      sumSquaredError: number;
-      correctDirections: number;
-    };
-    const metrics = BacktestMetrics.reconstitute(snapshot);
+    const metrics = BacktestMetrics.reconstitute(orm.metrics as Record<string, number>);
 
     return BacktestSession.reconstitute(
       {
@@ -65,6 +62,9 @@ export class BacktestTypeOrmRepository implements BacktestRepositoryPort {
         warmupPeriod: orm.warmupPeriod,
         status: orm.status as BacktestStatus,
         metrics,
+        sessionType: (orm.sessionType as SessionType) ?? SessionType.BACKTEST,
+        modelSnapshotId: orm.modelSnapshotId ?? undefined,
+        sourceSessionId: orm.sourceSessionId ?? undefined,
         createdAt: orm.createdAt,
         completedAt: orm.completedAt ?? undefined,
         errorMessage: orm.errorMessage ?? undefined,

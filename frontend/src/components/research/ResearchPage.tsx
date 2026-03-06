@@ -4,6 +4,7 @@ import { RunBacktestForm } from './RunBacktestForm.tsx';
 import { BacktestResults } from './BacktestResults.tsx';
 import { DatasetSummary } from './DatasetSummary.tsx';
 import { CandlestickChart } from './CandlestickChart.tsx';
+import { ForwardTestForm } from './ForwardTestForm.tsx';
 import { fetchBacktests, fetchBacktest } from '../../services/api.ts';
 import type { BacktestSession, Timeframe } from '../../types/index.ts';
 
@@ -48,7 +49,7 @@ export function ResearchPage() {
     setChartRange({ from, to });
   }
 
-  async function handleBacktestCompleted(session: BacktestSession) {
+  async function handleSessionCompleted(session: BacktestSession) {
     try {
       const full = await fetchBacktest(session.id, true);
       setSelectedSession(full);
@@ -88,7 +89,14 @@ export function ResearchPage() {
         />
 
         <RunBacktestForm
-          onCompleted={(s) => void handleBacktestCompleted(s)}
+          onCompleted={(s) => void handleSessionCompleted(s)}
+          prefilledFrom={chartRange?.from}
+          prefilledTo={chartRange?.to}
+        />
+
+        <ForwardTestForm
+          completedSessions={sessions.filter((s) => s.status === 'COMPLETED' && (s.sessionType === 'BACKTEST' || !s.sessionType))}
+          onCompleted={(s) => void handleSessionCompleted(s)}
           prefilledFrom={chartRange?.from}
           prefilledTo={chartRange?.to}
         />
@@ -114,7 +122,12 @@ export function ResearchPage() {
                     : 'bg-gray-800/50 hover:bg-gray-800 text-gray-400'
                 }`}
               >
-                <div className="font-medium text-gray-200">{s.symbol} · {s.timeframe}</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-gray-200">{s.symbol} · {s.timeframe}</span>
+                  {s.sessionType === 'FORWARD_TEST' && (
+                    <span className="text-[10px] bg-violet-900/40 text-violet-400 px-1 rounded">FWD</span>
+                  )}
+                </div>
                 <div className="text-gray-500 mt-0.5">
                   {s.status} · {s.metrics.totalPredictions} preds
                   {s.status === 'COMPLETED' && ` · DA ${s.metrics.directionalAccuracy.toFixed(0)}%`}

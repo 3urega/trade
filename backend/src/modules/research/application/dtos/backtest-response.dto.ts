@@ -1,14 +1,27 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { BacktestSession } from '../../domain/entities/backtest-session.entity.js';
 import { PredictionRecord } from '../../domain/entities/prediction-record.entity.js';
-import { BacktestStatus, Timeframe, ModelType } from '../../domain/enums.js';
+import { BacktestStatus, Timeframe, ModelType, SessionType } from '../../domain/enums.js';
 
 export class BacktestMetricsResponseDto {
+  // Price-space
   @ApiProperty() mae!: number;
   @ApiProperty() mse!: number;
   @ApiProperty() rmse!: number;
+  @ApiProperty() mape!: number;
+
+  // Return-space
+  @ApiProperty() maeReturn!: number;
+  @ApiProperty() rmseReturn!: number;
+
+  // Direction
   @ApiProperty() directionalAccuracy!: number;
   @ApiProperty() totalPredictions!: number;
+
+  // Baseline & finance
+  @ApiProperty() maeNaive!: number;
+  @ApiProperty() skillScore!: number;
+  @ApiProperty() sharpeRatio!: number;
 }
 
 export class PredictionRecordResponseDto {
@@ -30,6 +43,9 @@ export class BacktestSessionResponseDto {
   @ApiProperty() warmupPeriod!: number;
   @ApiProperty({ enum: BacktestStatus }) status!: BacktestStatus;
   @ApiProperty({ type: BacktestMetricsResponseDto }) metrics!: BacktestMetricsResponseDto;
+  @ApiProperty({ enum: SessionType }) sessionType!: SessionType;
+  @ApiProperty({ required: false }) modelSnapshotId?: string;
+  @ApiProperty({ required: false }) sourceSessionId?: string;
   @ApiProperty() createdAt!: Date;
   @ApiProperty({ required: false }) completedAt?: Date;
   @ApiProperty({ required: false }) errorMessage?: string;
@@ -53,9 +69,18 @@ export class BacktestSessionResponseDto {
       mae: session.metrics.mae,
       mse: session.metrics.mse,
       rmse: session.metrics.rmse,
+      mape: session.metrics.mape,
+      maeReturn: session.metrics.maeReturn,
+      rmseReturn: session.metrics.rmseReturn,
       directionalAccuracy: session.metrics.directionalAccuracy,
       totalPredictions: session.metrics.totalPredictions,
+      maeNaive: session.metrics.maeNaive,
+      skillScore: session.metrics.skillScore,
+      sharpeRatio: session.metrics.sharpeRatio,
     };
+    dto.sessionType = session.sessionType;
+    dto.modelSnapshotId = session.modelSnapshotId;
+    dto.sourceSessionId = session.sourceSessionId;
     dto.createdAt = session.createdAt;
     dto.completedAt = session.completedAt;
     dto.errorMessage = session.errorMessage;

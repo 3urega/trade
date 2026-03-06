@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ResearchModule } from '../research/research.module.js';
 
 // Infrastructure - Persistence
 import { TradeOrmEntity } from './infrastructure/persistence/trade.orm-entity.js';
@@ -22,6 +23,7 @@ import { GetPortfolioUseCase } from './application/use-cases/get-portfolio.use-c
 import { GetTradesUseCase } from './application/use-cases/get-trades.use-case.js';
 import { CreateWalletUseCase } from './application/use-cases/create-wallet.use-case.js';
 import { SimulationService } from './application/use-cases/simulation.service.js';
+import { TradingSignalService } from './application/use-cases/trading-signal.service.js';
 
 // Domain - Tokens
 import { TRADE_REPOSITORY } from './domain/ports/trade-repository.port.js';
@@ -31,6 +33,7 @@ import { MARKET_DATA_PORT } from './domain/ports/market-data.port.js';
 @Module({
   imports: [
     TypeOrmModule.forFeature([TradeOrmEntity, WalletOrmEntity]),
+    ResearchModule,
   ],
   controllers: [TradingController],
   providers: [
@@ -44,6 +47,7 @@ import { MARKET_DATA_PORT } from './domain/ports/market-data.port.js';
     GetPortfolioUseCase,
     GetTradesUseCase,
     CreateWalletUseCase,
+    TradingSignalService,
     SimulationService,
 
     // WebSocket Gateway

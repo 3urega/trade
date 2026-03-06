@@ -1,13 +1,38 @@
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
+from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sklearn.linear_model import SGDRegressor, PassiveAggressiveRegressor
 from sklearn.preprocessing import StandardScaler
 import numpy as np
+import joblib
+import uuid
 import logging
+import math
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Use ML_MODELS_DIR env for local dev; Docker mounts mlmodels at /data/models
+MODELS_DIR = Path(os.environ.get("ML_MODELS_DIR", "/data/models"))
+FEATURE_NAMES = [
+    "relative_range",
+    "log_return_1",
+    "log_return_5",
+    "local_volatility",
+    "norm_volume",
+    "rsi_14",
+    "ema_ratio_short",
+    "ema_ratio_long",
+    "macd_norm",
+    "bb_position",
+    "log_return_10",
+    "log_return_20",
+    "volume_ratio",
+    "body_ratio",
+]
 
 # ---------------------------------------------------------------------------
 # In-memory model state (one model per process, isolated per backtest session
@@ -22,7 +47,8 @@ train_count: int = 0
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("ML Engine starting up")
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info("ML Engine starting up — models dir: %s", MODELS_DIR)
     yield
     logger.info("ML Engine shutting down")
 
@@ -65,6 +91,24 @@ class DiagnosticsResponse(BaseModel):
     scaler_y_var: float | None
 
 
+class SaveModelResponse(BaseModel):
+    model_id: str
+    model_type: str
+    train_count: int
+
+
+class LoadModelRequest(BaseModel):
+    model_id: str
+
+
+class ModelInfo(BaseModel):
+    model_id: str
+    model_type: str
+    train_count: int
+    feature_names: list[str]
+    saved_at: str
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -80,7 +124,7 @@ SUPPORTED_MODELS = {
         random_state=42,
     ),
     "passive_aggressive": lambda: PassiveAggressiveRegressor(
-        C=0.1,  # Reduced from 1.0 to limit step size and prevent divergence
+        C=0.1,
         max_iter=1,
         tol=None,
         warm_start=True,
@@ -101,6 +145,13 @@ def _scaler_fitted(scaler: StandardScaler) -> bool:
     return hasattr(scaler, "mean_") and scaler.mean_ is not None
 
 
+def _model_healthy() -> bool:
+    """Verify model coefficients contain no NaN/Inf values."""
+    if model is None or not hasattr(model, "coef_") or model.coef_ is None:
+        return False
+    return bool(np.all(np.isfinite(model.coef_)))
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -112,7 +163,6 @@ def health():
 
 @app.get("/diagnostics", response_model=DiagnosticsResponse)
 def diagnostics():
-    """Debug endpoint: returns current scaler statistics and training count."""
     x_mean = scaler_x.mean_.tolist() if scaler_x and _scaler_fitted(scaler_x) else None
     x_var = scaler_x.var_.tolist() if scaler_x and _scaler_fitted(scaler_x) else None
     y_mean = float(scaler_y.mean_[0]) if scaler_y and _scaler_fitted(scaler_y) else None
@@ -152,13 +202,11 @@ def partial_train(request: PartialTrainRequest):
     _require_model()
 
     X = np.array(request.features).reshape(1, -1)
-    y = np.array([[request.target]])  # shape (1, 1) for scaler_y
+    y = np.array([[request.target]])
 
-    # Update scalers incrementally
     scaler_x.partial_fit(X)
     scaler_y.partial_fit(y)
 
-    # Only transform once both scalers have seen at least one sample
     if _scaler_fitted(scaler_x) and _scaler_fitted(scaler_y):
         X_scaled = scaler_x.transform(X)
         y_scaled = scaler_y.transform(y).ravel()
@@ -187,7 +235,92 @@ def predict(request: PredictRequest):
     X = np.array(request.features).reshape(1, -1)
     X_scaled = scaler_x.transform(X)
     pred_scaled = model.predict(X_scaled).reshape(1, -1)
-    # inverse_transform back to original target scale
     prediction = float(scaler_y.inverse_transform(pred_scaled)[0][0])
 
+    if math.isnan(prediction) or math.isinf(prediction):
+        raise HTTPException(status_code=500, detail="Model produced NaN/Inf — likely diverged.")
+
     return PredictionResponse(prediction=prediction)
+
+
+# ---------------------------------------------------------------------------
+# Model persistence
+# ---------------------------------------------------------------------------
+
+@app.post("/save-model", response_model=SaveModelResponse)
+def save_model():
+    _require_model()
+    if not _model_healthy():
+        raise HTTPException(status_code=400, detail="Model contains NaN/Inf — cannot save a corrupted snapshot.")
+
+    model_id = str(uuid.uuid4())
+    snapshot = {
+        "model": model,
+        "scaler_x": scaler_x,
+        "scaler_y": scaler_y,
+        "metadata": {
+            "model_type": model_type_active,
+            "train_count": train_count,
+            "feature_names": FEATURE_NAMES,
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+
+    path = MODELS_DIR / f"{model_id}.joblib"
+    joblib.dump(snapshot, path, compress=3)
+    logger.info(f"Model saved: {model_id} ({model_type_active}, {train_count} steps)")
+
+    return SaveModelResponse(model_id=model_id, model_type=model_type_active or "", train_count=train_count)
+
+
+@app.post("/load-model", response_model=StatusResponse)
+def load_model(request: LoadModelRequest):
+    global model, scaler_x, scaler_y, model_type_active, train_count
+
+    path = MODELS_DIR / f"{request.model_id}.joblib"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Model snapshot '{request.model_id}' not found.")
+
+    snapshot = joblib.load(path)
+    model = snapshot["model"]
+    scaler_x = snapshot["scaler_x"]
+    scaler_y = snapshot["scaler_y"]
+    meta = snapshot.get("metadata", {})
+    model_type_active = meta.get("model_type")
+    train_count = meta.get("train_count", 0)
+
+    if not _model_healthy():
+        model = None
+        raise HTTPException(status_code=400, detail="Loaded model contains NaN/Inf — snapshot is corrupted.")
+
+    logger.info(f"Model loaded: {request.model_id} ({model_type_active}, {train_count} steps)")
+    return StatusResponse(status="loaded", model_type=model_type_active)
+
+
+@app.get("/models", response_model=list[ModelInfo])
+def list_models():
+    results: list[ModelInfo] = []
+    for p in sorted(MODELS_DIR.glob("*.joblib")):
+        try:
+            snapshot = joblib.load(p)
+            meta = snapshot.get("metadata", {})
+            results.append(ModelInfo(
+                model_id=p.stem,
+                model_type=meta.get("model_type", "unknown"),
+                train_count=meta.get("train_count", 0),
+                feature_names=meta.get("feature_names", []),
+                saved_at=meta.get("saved_at", ""),
+            ))
+        except Exception:
+            logger.warning(f"Skipping corrupted snapshot: {p.name}")
+    return results
+
+
+@app.delete("/models/{model_id}", response_model=StatusResponse)
+def delete_model(model_id: str):
+    path = MODELS_DIR / f"{model_id}.joblib"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Model snapshot '{model_id}' not found.")
+    path.unlink()
+    logger.info(f"Model deleted: {model_id}")
+    return StatusResponse(status="deleted")

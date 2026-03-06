@@ -13,6 +13,8 @@ import { ExecuteTradeUseCase } from '../../application/use-cases/execute-trade.u
 import { GetPortfolioUseCase } from '../../application/use-cases/get-portfolio.use-case.js';
 import { GetTradesUseCase } from '../../application/use-cases/get-trades.use-case.js';
 import { CreateWalletUseCase } from '../../application/use-cases/create-wallet.use-case.js';
+import { TradingSignalService } from '../../application/use-cases/trading-signal.service.js';
+import { SimulationService } from '../../application/use-cases/simulation.service.js';
 import { ExecuteTradeDto } from '../../application/dtos/execute-trade.dto.js';
 import { TradeResponseDto } from '../../application/dtos/trade-response.dto.js';
 import { PortfolioResponseDto } from '../../application/dtos/portfolio-response.dto.js';
@@ -26,8 +28,22 @@ export class TradingController {
     private readonly getPortfolioUseCase: GetPortfolioUseCase,
     private readonly getTradesUseCase: GetTradesUseCase,
     private readonly createWalletUseCase: CreateWalletUseCase,
+    private readonly tradingSignalService: TradingSignalService,
+    private readonly simulationService: SimulationService,
     private readonly gateway: TradingGateway,
   ) {}
+
+  @Get('trading/signal-status')
+  @ApiOperation({ summary: 'Get current ML trading signal status' })
+  getSignalStatus(): { modelReady: boolean } {
+    return { modelReady: this.tradingSignalService.isModelReady };
+  }
+
+  @Get('trading/simulation-wallet')
+  @ApiOperation({ summary: 'Get the simulation wallet ID' })
+  getSimulationWallet(): { walletId: string | null } {
+    return { walletId: this.simulationService.getSimulationWalletId() };
+  }
 
   @Post('wallets')
   @HttpCode(HttpStatus.CREATED)

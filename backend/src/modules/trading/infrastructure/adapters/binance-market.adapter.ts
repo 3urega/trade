@@ -4,10 +4,21 @@ import WebSocket from 'ws';
 import type { MarketDataPort } from '../../domain/ports/market-data.port.js';
 import { CryptoPair } from '../../domain/value-objects/crypto-pair.js';
 import { Price } from '../../domain/value-objects/price.js';
+import { Candle } from '../../../../modules/research/domain/value-objects/candle.js';
+import { Timeframe } from '../../../../modules/research/domain/enums.js';
 import { MockMarketAdapter } from './mock-market.adapter.js';
 
 const BINANCE_REST = 'https://api.binance.com/api/v3';
 const BINANCE_WS = 'wss://stream.binance.com:9443/ws';
+
+const TIMEFRAME_MAP: Record<Timeframe, string> = {
+  [Timeframe.ONE_MINUTE]: '1m',
+  [Timeframe.FIVE_MINUTES]: '5m',
+  [Timeframe.FIFTEEN_MINUTES]: '15m',
+  [Timeframe.ONE_HOUR]: '1h',
+  [Timeframe.FOUR_HOURS]: '4h',
+  [Timeframe.ONE_DAY]: '1d',
+};
 
 @Injectable()
 export class BinanceMarketAdapter implements MarketDataPort, OnModuleDestroy {
@@ -49,6 +60,34 @@ export class BinanceMarketAdapter implements MarketDataPort, OnModuleDestroy {
     } catch (err) {
       this.logger.warn(`Binance klines unavailable for ${pair.toSymbol()}, using mock`);
       return this.fallback.getHistoricalPrices(pair, from, to);
+    }
+  }
+
+  async getRecentCandles(pair: CryptoPair, timeframe: Timeframe, limit: number): Promise<Candle[]> {
+    const interval = TIMEFRAME_MAP[timeframe] ?? '5m';
+    try {
+      const { data } = await axios.get<[number, string, string, string, string, string][]>(
+        `${BINANCE_REST}/klines`,
+        {
+          params: { symbol: pair.toSymbol(), interval, limit },
+          timeout: 8000,
+        },
+      );
+      return data.map(([openTime, open, high, low, close, volume]) =>
+        Candle.create(
+          pair.toSymbol(),
+          timeframe,
+          new Date(openTime),
+          parseFloat(open),
+          parseFloat(high),
+          parseFloat(low),
+          parseFloat(close),
+          parseFloat(volume),
+        ),
+      );
+    } catch (err) {
+      this.logger.warn(`Binance klines unavailable for ${pair.toSymbol()}, using mock: ${String(err)}`);
+      return this.fallback.getRecentCandles(pair, timeframe, limit);
     }
   }
 

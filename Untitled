@@ -1,0 +1,212 @@
+Perfecto.
+Lo que estás describiendo **no es normal** en un modelo que predice retornos.
+
+Si en el backtest ves:
+
+> 🔵 Predicción = curva real
+> pero desplazada una vela a la derecha
+
+Eso es casi siempre uno de estos 3 problemas 👇
+
+---
+
+# 🔴 1️⃣ Estás usando el target incorrecto (shift mal hecho)
+
+Este es el bug más común.
+
+Si tu modelo aprende:
+
+```
+target[t] = close[t]
+```
+
+En vez de:
+
+```
+target[t] = close[t+1]
+```
+
+Entonces el modelo aprende simplemente:
+
+```
+close[t] ≈ close[t]
+```
+
+Y cuando predices en t, estás reconstruyendo el mismo valor que ya vio.
+
+### Resultado visual:
+
+Parece que predice perfecto…
+Pero en realidad solo está copiando el presente.
+
+---
+
+### ✔ Cómo debería ser
+
+Si trabajas con log-return:
+
+```python
+log_return[t] = log(close[t] / close[t-1])
+```
+
+Y quieres predecir el siguiente:
+
+```python
+target[t] = log_return[t+1]
+features[t] = datos hasta t
+```
+
+El shift debe ser:
+
+```python
+y = log_return.shift(-1)
+X = features
+```
+
+Si no haces ese shift, estás prediciendo el mismo retorno.
+
+---
+
+# 🔴 2️⃣ Estás entrenando antes de predecir (data leakage temporal)
+
+Si tu loop es así:
+
+```python
+for t in range(...):
+    model.partial_fit(X[t], y[t])
+    pred = model.predict(X[t])
+```
+
+Entonces estás prediciendo algo que el modelo acaba de ver.
+
+Eso produce exactamente el efecto que describes:
+una copia desplazada.
+
+---
+
+### ✔ Orden correcto
+
+Debe ser:
+
+```python
+for t in range(...):
+    pred = model.predict(X[t])
+    guardar_metrica(pred, y[t])
+    model.partial_fit(X[t], y[t])
+```
+
+Primero predices.
+Luego entrenas.
+
+Nunca al revés.
+
+---
+
+# 🔴 3️⃣ El scaler está usando todo el dataset (leakage silencioso)
+
+Si haces:
+
+```python
+scaler.fit(X_full_dataset)
+```
+
+Antes del backtest, ya le estás dando información futura.
+
+Eso puede producir una curva casi idéntica.
+
+El scaler debe actualizarse online:
+
+```python
+scaler.partial_fit(X[t])
+```
+
+Dentro del loop.
+
+---
+
+# 🔍 Cómo detectar cuál es tu caso
+
+Te hago una prueba mental rápida:
+
+Si la predicción es literalmente:
+
+```
+predicted_price[t] ≈ actual_price[t]
+```
+
+Entonces el target no está desplazado.
+
+Si es:
+
+```
+predicted_price[t] ≈ actual_price[t+1]
+```
+
+Entonces estás entrenando antes de predecir.
+
+---
+
+# 🧠 Hay otra posibilidad avanzada
+
+Si tu modelo es lineal (SGDRegressor por ejemplo)
+y usas como feature el propio close o algo altamente correlacionado…
+
+El modelo puede aprender:
+
+```
+close[t+1] ≈ close[t]
+```
+
+Y como el mercado es muy autocorrelacionado a corto plazo,
+parece que está clavando.
+
+Pero eso no es predicción real,
+es simplemente persistencia del precio.
+
+Por eso el naive baseline suele tener MAE muy parecido.
+
+---
+
+# 🎯 Te hago una pregunta clave
+
+En tu loop de backtest:
+
+¿Está en este orden?
+
+A)
+
+```
+partial_fit
+predict
+```
+
+o
+
+B)
+
+```
+predict
+partial_fit
+```
+
+Si es A → ahí está el problema.
+
+---
+
+# 💡 Te digo algo importante
+
+Cuando ves una predicción “demasiado perfecta” en backtest,
+eso casi siempre es:
+
+👉 leakage
+👉 shift incorrecto
+👉 entrenamiento mal ordenado
+
+Nunca es porque el modelo sea mágico.
+
+---
+
+Si quieres, pásame exactamente cómo tienes el loop del backtest
+(orden de predict / partial_fit y cómo construyes y),
+
+y te digo en 30 segundos dónde está el bug.

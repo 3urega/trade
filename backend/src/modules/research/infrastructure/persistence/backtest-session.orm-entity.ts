@@ -29,6 +29,15 @@ export class BacktestSessionOrmEntity {
   @Column({ type: 'jsonb', default: {} })
   metrics!: Record<string, number>;
 
+  @Column({ name: 'session_type', length: 20, default: 'BACKTEST' })
+  sessionType!: string;
+
+  @Column({ name: 'model_snapshot_id', type: 'varchar', length: 50, nullable: true })
+  modelSnapshotId!: string | null;
+
+  @Column({ name: 'source_session_id', type: 'uuid', nullable: true })
+  sourceSessionId!: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

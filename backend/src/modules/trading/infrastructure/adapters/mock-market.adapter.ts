@@ -2,6 +2,8 @@ import { Logger } from '@nestjs/common';
 import type { MarketDataPort } from '../../domain/ports/market-data.port.js';
 import { CryptoPair } from '../../domain/value-objects/crypto-pair.js';
 import { Price } from '../../domain/value-objects/price.js';
+import { Candle } from '../../../../modules/research/domain/value-objects/candle.js';
+import { Timeframe } from '../../../../modules/research/domain/enums.js';
 
 const BASE_PRICES: Record<string, number> = {
   BTC: 65000,
@@ -42,6 +44,28 @@ export class MockMarketAdapter implements MarketDataPort {
       ts += intervalMs;
     }
     return points;
+  }
+
+  async getRecentCandles(pair: CryptoPair, _timeframe: Timeframe, limit: number): Promise<Candle[]> {
+    const base = pair.base;
+    const basePrice = BASE_PRICES[base] ?? 100;
+    const candles: Candle[] = [];
+    const nowMs = Date.now();
+    const intervalMs = 5 * 60 * 1000; // 5m
+    let price = basePrice;
+
+    for (let i = limit; i >= 0; i--) {
+      const swing = (Math.random() - 0.5) * 2 * VOLATILITY;
+      price = parseFloat((price * (1 + swing)).toFixed(2));
+      const open = price;
+      const close = parseFloat((price * (1 + (Math.random() - 0.5) * 0.01)).toFixed(2));
+      const high = Math.max(open, close) * (1 + Math.random() * 0.005);
+      const low = Math.min(open, close) * (1 - Math.random() * 0.005);
+      candles.push(
+        Candle.create(pair.toSymbol(), _timeframe, new Date(nowMs - i * intervalMs), open, high, low, close, 1000),
+      );
+    }
+    return candles;
   }
 
   subscribeToPrice(pair: CryptoPair, callback: (price: Price) => void): void {

@@ -88,6 +88,35 @@ export async function fetchBacktest(id: string, withPredictions = false): Promis
   return res.json() as Promise<BacktestSession>;
 }
 
+export async function runForwardTest(payload: {
+  backtestSessionId: string;
+  from: string;
+  to: string;
+}): Promise<BacktestSession> {
+  const res = await fetch(`${BASE}/research/forward-test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json() as { message: string };
+    throw new Error(err.message ?? 'Forward test failed');
+  }
+  return res.json() as Promise<BacktestSession>;
+}
+
+export async function fetchSignalStatus(): Promise<{ modelReady: boolean }> {
+  const res = await fetch(`${BASE}/trading/signal-status`);
+  if (!res.ok) return { modelReady: false };
+  return res.json() as Promise<{ modelReady: boolean }>;
+}
+
+export async function fetchSimulationWallet(): Promise<{ walletId: string | null }> {
+  const res = await fetch(`${BASE}/trading/simulation-wallet`);
+  if (!res.ok) return { walletId: null };
+  return res.json() as Promise<{ walletId: string | null }>;
+}
+
 export async function fetchCandleSummary(): Promise<CandleDatasetSummary[]> {
   const res = await fetch(`${BASE}/research/candles/summary`);
   if (!res.ok) throw new Error('Failed to fetch candle summary');

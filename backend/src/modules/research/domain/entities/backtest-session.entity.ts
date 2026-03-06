@@ -1,6 +1,6 @@
 import { AggregateRoot } from '../../../../shared/domain/aggregate-root.js';
 import { UniqueEntityId } from '../../../../shared/domain/unique-entity-id.js';
-import { BacktestStatus, Timeframe, ModelType } from '../enums.js';
+import { BacktestStatus, Timeframe, ModelType, SessionType } from '../enums.js';
 import { BacktestMetrics } from '../value-objects/backtest-metrics.js';
 import { PredictionError } from '../value-objects/prediction-error.js';
 
@@ -13,6 +13,9 @@ interface BacktestSessionProps {
   warmupPeriod: number;
   status: BacktestStatus;
   metrics: BacktestMetrics;
+  sessionType: SessionType;
+  modelSnapshotId?: string;
+  sourceSessionId?: string;
   createdAt: Date;
   completedAt?: Date;
   errorMessage?: string;
@@ -44,6 +47,37 @@ export class BacktestSession extends AggregateRoot<BacktestSessionProps> {
         warmupPeriod,
         status: BacktestStatus.CREATED,
         metrics: BacktestMetrics.empty(),
+        sessionType: SessionType.BACKTEST,
+        createdAt: new Date(),
+      },
+      id,
+    );
+  }
+
+  static createForwardTest(
+    symbol: string,
+    timeframe: Timeframe,
+    startDate: Date,
+    endDate: Date,
+    modelType: ModelType,
+    sourceSessionId: string,
+    modelSnapshotId: string,
+    id?: UniqueEntityId,
+  ): BacktestSession {
+    if (startDate >= endDate) throw new Error('BacktestSession: startDate must be before endDate');
+    return new BacktestSession(
+      {
+        symbol: symbol.toUpperCase(),
+        timeframe,
+        startDate,
+        endDate,
+        modelType,
+        warmupPeriod: 0,
+        status: BacktestStatus.CREATED,
+        metrics: BacktestMetrics.empty(),
+        sessionType: SessionType.FORWARD_TEST,
+        sourceSessionId,
+        modelSnapshotId,
         createdAt: new Date(),
       },
       id,
@@ -62,9 +96,16 @@ export class BacktestSession extends AggregateRoot<BacktestSessionProps> {
   get warmupPeriod(): number { return this.props.warmupPeriod; }
   get status(): BacktestStatus { return this.props.status; }
   get metrics(): BacktestMetrics { return this.props.metrics; }
+  get sessionType(): SessionType { return this.props.sessionType; }
+  get modelSnapshotId(): string | undefined { return this.props.modelSnapshotId; }
+  get sourceSessionId(): string | undefined { return this.props.sourceSessionId; }
   get createdAt(): Date { return this.props.createdAt; }
   get completedAt(): Date | undefined { return this.props.completedAt; }
   get errorMessage(): string | undefined { return this.props.errorMessage; }
+
+  setModelSnapshotId(id: string): void {
+    this.props.modelSnapshotId = id;
+  }
 
   start(): void {
     if (this.props.status !== BacktestStatus.CREATED) {

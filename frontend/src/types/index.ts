@@ -35,13 +35,24 @@ export interface PriceUpdate {
 export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
 export type ModelType = 'sgd_regressor' | 'passive_aggressive';
 export type BacktestStatus = 'CREATED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+export type SessionType = 'BACKTEST' | 'FORWARD_TEST';
 
 export interface BacktestMetrics {
+  // Price-space
   mae: number;
   mse: number;
   rmse: number;
+  mape: number;
+  // Return-space
+  maeReturn: number;
+  rmseReturn: number;
+  // Direction
   directionalAccuracy: number;
   totalPredictions: number;
+  // Baseline & finance
+  maeNaive: number;
+  skillScore: number;
+  sharpeRatio: number;
 }
 
 export interface PredictionRecord {
@@ -63,6 +74,9 @@ export interface BacktestSession {
   warmupPeriod: number;
   status: BacktestStatus;
   metrics: BacktestMetrics;
+  sessionType: SessionType;
+  modelSnapshotId?: string;
+  sourceSessionId?: string;
   createdAt: string;
   completedAt?: string;
   errorMessage?: string;

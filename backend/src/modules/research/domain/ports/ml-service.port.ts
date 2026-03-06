@@ -7,4 +7,6 @@ export interface MlServicePort {
   initialize(modelType: ModelType): Promise<void>;
   partialTrain(x: FeatureVector, y: number): Promise<void>;
   predict(x: FeatureVector): Promise<number>;
+  saveModel(): Promise<string>;
+  loadModel(modelId: string): Promise<void>;
 }

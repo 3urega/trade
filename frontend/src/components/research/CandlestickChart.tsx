@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { createChart, ColorType, CrosshairMode, CandlestickSeries } from 'lightweight-charts';
-import type { ISeriesApi, SeriesMarker, Time } from 'lightweight-charts';
+import { createChart, createSeriesMarkers, CrosshairMode, CandlestickSeries } from 'lightweight-charts';
+import type { ISeriesApi, ISeriesMarkersPluginApi, SeriesMarker, Time } from 'lightweight-charts';
 import { fetchCandles } from '../../services/api.ts';
 import type { CandleData, Timeframe } from '../../types/index.ts';
+import {
+  chartLocalization,
+  chartLayoutOptions,
+  chartGridOptions,
+  chartRightPriceScaleOptions,
+  getChartTimeScaleOptions,
+} from '../../utils/chartConfig.ts';
 
 interface Props {
   symbol: string;
@@ -20,6 +27,7 @@ export function CandlestickChart({ symbol, timeframe, start, end, onRangeSelect 
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ReturnType<typeof createChart> | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const fromTimeRef = useRef<number | null>(null);
   const toTimeRef = useRef<number | null>(null);
   // Keep a stable ref to the callback so the click handler always uses the latest version
@@ -32,7 +40,7 @@ export function CandlestickChart({ symbol, timeframe, start, end, onRangeSelect 
   const [clickPhase, setClickPhase] = useState<ClickPhase>('idle');
 
   function updateMarkers() {
-    if (!seriesRef.current) return;
+    if (!markersRef.current) return;
     const markers: SeriesMarker<Time>[] = [];
     if (fromTimeRef.current !== null) {
       markers.push({
@@ -52,7 +60,7 @@ export function CandlestickChart({ symbol, timeframe, start, end, onRangeSelect 
         text: 'End',
       });
     }
-    seriesRef.current.setMarkers(markers);
+    markersRef.current.setMarkers(markers);
   }
 
   useEffect(() => {
@@ -65,17 +73,12 @@ export function CandlestickChart({ symbol, timeframe, start, end, onRangeSelect 
     setClickPhase('idle');
 
     chartRef.current = createChart(container, {
-      layout: {
-        background: { type: ColorType.Solid, color: '#030712' },
-        textColor: '#9ca3af',
-      },
-      grid: {
-        vertLines: { color: '#1f2937' },
-        horzLines: { color: '#1f2937' },
-      },
+      layout: chartLayoutOptions,
+      localization: chartLocalization,
+      grid: chartGridOptions,
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: '#374151' },
-      timeScale: { borderColor: '#374151', timeVisible: true },
+      rightPriceScale: chartRightPriceScaleOptions,
+      timeScale: getChartTimeScaleOptions(timeframe),
       width: container.clientWidth,
       height: 380,
     });
@@ -89,6 +92,7 @@ export function CandlestickChart({ symbol, timeframe, start, end, onRangeSelect 
       wickDownColor: '#ef4444',
     });
     seriesRef.current = series;
+    markersRef.current = createSeriesMarkers(series, []);
 
     // Click handler for range selection
     chartRef.current.subscribeClick((param) => {
@@ -149,6 +153,7 @@ export function CandlestickChart({ symbol, timeframe, start, end, onRangeSelect 
 
     return () => {
       ro.disconnect();
+      markersRef.current = null;
       seriesRef.current = null;
       chartRef.current?.remove();
       chartRef.current = null;
