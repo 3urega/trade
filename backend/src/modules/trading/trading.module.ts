@@ -5,6 +5,7 @@ import { ResearchModule } from '../research/research.module.js';
 // Infrastructure - Persistence
 import { TradeOrmEntity } from './infrastructure/persistence/trade.orm-entity.js';
 import { WalletOrmEntity } from './infrastructure/persistence/wallet.orm-entity.js';
+import { TradingConfigOrmEntity } from './infrastructure/persistence/trading-config.orm-entity.js';
 import { TradeTypeOrmRepository } from './infrastructure/persistence/trade-typeorm.repository.js';
 import { WalletTypeOrmRepository } from './infrastructure/persistence/wallet-typeorm.repository.js';
 
@@ -24,6 +25,7 @@ import { GetTradesUseCase } from './application/use-cases/get-trades.use-case.js
 import { CreateWalletUseCase } from './application/use-cases/create-wallet.use-case.js';
 import { SimulationService } from './application/use-cases/simulation.service.js';
 import { TradingSignalService } from './application/use-cases/trading-signal.service.js';
+import { TradingConfigService } from './application/use-cases/trading-config.service.js';
 
 // Domain - Tokens
 import { TRADE_REPOSITORY } from './domain/ports/trade-repository.port.js';
@@ -32,7 +34,7 @@ import { MARKET_DATA_PORT } from './domain/ports/market-data.port.js';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([TradeOrmEntity, WalletOrmEntity]),
+    TypeOrmModule.forFeature([TradeOrmEntity, WalletOrmEntity, TradingConfigOrmEntity]),
     ResearchModule,
   ],
   controllers: [TradingController],
@@ -47,6 +49,7 @@ import { MARKET_DATA_PORT } from './domain/ports/market-data.port.js';
     GetPortfolioUseCase,
     GetTradesUseCase,
     CreateWalletUseCase,
+    TradingConfigService,
     TradingSignalService,
     SimulationService,
 

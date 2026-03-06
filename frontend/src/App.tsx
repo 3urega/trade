@@ -3,6 +3,7 @@ import { PortfolioPanel } from './components/PortfolioPanel.tsx';
 import { PriceChart } from './components/PriceChart.tsx';
 import { TradeList } from './components/TradeList.tsx';
 import { ResearchPage } from './components/research/ResearchPage.tsx';
+import { TradingConfigModal } from './components/TradingConfigModal.tsx';
 import { fetchTrades, fetchPortfolio, fetchSignalStatus, fetchSimulationWallet } from './services/api.ts';
 import { onTradeExecuted, onPortfolioUpdate, onSocketConnect, onSocketDisconnect } from './services/socket.ts';
 import type { Trade, Portfolio } from './types/index.ts';
@@ -22,6 +23,7 @@ export default function App() {
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [section, setSection] = useState<AppSection>('trading');
   const [mlModelReady, setMlModelReady] = useState<boolean | null>(null);
+  const [configOpen, setConfigOpen] = useState(false);
 
   const loadData = useCallback(async (wid: string) => {
     try {
@@ -38,28 +40,47 @@ export default function App() {
     }
   }, []);
 
-  // Discover the simulation wallet — first try the dedicated endpoint, fallback to localStorage
+  // Discover the simulation wallet — validate cached ID, fallback to polling backend
   useEffect(() => {
+    let cancelled = false;
+
+    const startPolling = () => {
+      const poll = setInterval(async () => {
+        if (cancelled) { clearInterval(poll); return; }
+        try {
+          const { walletId: wid } = await fetchSimulationWallet();
+          if (wid) {
+            localStorage.setItem(SIMULATION_WALLET_ID_KEY, wid);
+            setWalletId(wid);
+            clearInterval(poll);
+            void loadData(wid);
+          }
+        } catch { /* backend not ready yet */ }
+      }, 2000);
+      return poll;
+    };
+
     const stored = localStorage.getItem(SIMULATION_WALLET_ID_KEY);
     if (stored) {
-      setWalletId(stored);
-      void loadData(stored);
-      return;
+      // Validate stored ID is still valid before using it
+      fetchPortfolio(stored)
+        .then((p) => {
+          if (cancelled) return;
+          setWalletId(stored);
+          setPortfolio(p);
+          void fetchTrades(stored, 100).then(setTrades).catch(() => null);
+          setLoading(false);
+        })
+        .catch(() => {
+          // Wallet no longer exists — clear cache and re-discover
+          localStorage.removeItem(SIMULATION_WALLET_ID_KEY);
+          if (!cancelled) startPolling();
+        });
+    } else {
+      startPolling();
     }
 
-    const poll = setInterval(async () => {
-      try {
-        const { walletId: wid } = await fetchSimulationWallet();
-        if (wid) {
-          localStorage.setItem(SIMULATION_WALLET_ID_KEY, wid);
-          setWalletId(wid);
-          clearInterval(poll);
-          void loadData(wid);
-        }
-      } catch { /* backend not ready yet */ }
-    }, 2000);
-
-    return () => clearInterval(poll);
+    return () => { cancelled = true; };
   }, [loadData]);
 
   // WebSocket: connection status
@@ -153,8 +174,20 @@ export default function App() {
             <span className={`w-2 h-2 rounded-full ${statusDot[wsStatus]}`} />
             <span>{wsStatus === 'connected' ? 'Live' : wsStatus}</span>
           </div>
+          <button
+            onClick={() => setConfigOpen(true)}
+            title="Configuración de trading"
+            className="p-1.5 rounded text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
         </div>
       </header>
+
+      {configOpen && <TradingConfigModal onClose={() => setConfigOpen(false)} />}
 
       {section === 'research' && <ResearchPage />}
 

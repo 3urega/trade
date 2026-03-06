@@ -1,7 +1,8 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { BacktestSession } from '../../domain/entities/backtest-session.entity.js';
 import { PredictionRecord } from '../../domain/entities/prediction-record.entity.js';
 import { BacktestStatus, Timeframe, ModelType, SessionType } from '../../domain/enums.js';
+import type { TradingMetrics, SimTrade, EquityPoint } from '../../domain/value-objects/forward-test-result.js';
 
 export class BacktestMetricsResponseDto {
   // Price-space
@@ -33,6 +34,22 @@ export class PredictionRecordResponseDto {
   @ApiProperty() directionCorrect!: boolean;
 }
 
+export class TradingMetricsResponseDto {
+  @ApiProperty() initialCapital!: number;
+  @ApiProperty() finalCapital!: number;
+  @ApiProperty() totalPnl!: number;
+  @ApiProperty() totalPnlPercent!: number;
+  @ApiProperty() totalTrades!: number;
+  @ApiProperty() winningTrades!: number;
+  @ApiProperty() losingTrades!: number;
+  @ApiProperty() winRate!: number;
+  @ApiProperty() maxDrawdown!: number;
+  @ApiProperty() maxDrawdownPercent!: number;
+  @ApiProperty() sharpeRatio!: number;
+  @ApiProperty() trades!: SimTrade[];
+  @ApiProperty() equityCurve!: EquityPoint[];
+}
+
 export class BacktestSessionResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() symbol!: string;
@@ -51,6 +68,8 @@ export class BacktestSessionResponseDto {
   @ApiProperty({ required: false }) errorMessage?: string;
   @ApiProperty({ type: [PredictionRecordResponseDto], required: false })
   predictions?: PredictionRecordResponseDto[];
+  @ApiPropertyOptional({ type: TradingMetricsResponseDto })
+  tradingMetrics?: TradingMetricsResponseDto;
 
   static fromDomain(
     session: BacktestSession,
@@ -94,6 +113,43 @@ export class BacktestSessionResponseDto {
         directionCorrect: p.directionCorrect,
       }));
     }
+    if (session.tradingMetrics) {
+      const tm = session.tradingMetrics;
+      dto.tradingMetrics = {
+        initialCapital: tm.initialCapital,
+        finalCapital: tm.finalCapital,
+        totalPnl: tm.totalPnl,
+        totalPnlPercent: tm.totalPnlPercent,
+        totalTrades: tm.totalTrades,
+        winningTrades: tm.winningTrades,
+        losingTrades: tm.losingTrades,
+        winRate: tm.winRate,
+        maxDrawdown: tm.maxDrawdown,
+        maxDrawdownPercent: tm.maxDrawdownPercent,
+        sharpeRatio: tm.sharpeRatio,
+        trades: tm.trades,
+        equityCurve: tm.equityCurve,
+      };
+    }
     return dto;
+  }
+}
+
+export class ForwardTestResponseDto extends BacktestSessionResponseDto {
+  static fromDomain(
+    session: BacktestSession,
+    tradingMetricsOrPredictions?: TradingMetrics | PredictionRecord[],
+    predictions?: PredictionRecord[],
+  ): ForwardTestResponseDto {
+    let preds: PredictionRecord[] | undefined;
+
+    if (Array.isArray(tradingMetricsOrPredictions)) {
+      preds = tradingMetricsOrPredictions;
+    } else {
+      preds = predictions;
+    }
+
+    const base = BacktestSessionResponseDto.fromDomain(session, preds);
+    return Object.assign(new ForwardTestResponseDto(), base);
   }
 }

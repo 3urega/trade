@@ -10,8 +10,8 @@ import { Timeframe } from '../../../research/domain/enums.js';
 import { TradeSignal } from '../../domain/value-objects/trade-signal.js';
 import { CryptoPair } from '../../domain/value-objects/crypto-pair.js';
 import { SignalType } from '../../domain/enums.js';
+import { TradingConfigService } from './trading-config.service.js';
 
-const SIGNAL_THRESHOLD = parseFloat(process.env['TRADING_SIGNAL_THRESHOLD'] ?? '0.0005');
 // Need index >= 26 for features (EMA-26, Bollinger-20), plus buffer
 const CANDLE_LOOKBACK = 30;
 
@@ -25,6 +25,7 @@ export class TradingSignalService implements OnModuleInit {
     @Inject(BACKTEST_REPOSITORY) private readonly backtestRepo: BacktestRepositoryPort,
     @Inject(MARKET_DATA_PORT) private readonly marketData: MarketDataPort,
     private readonly features: FeatureEngineeringService,
+    private readonly tradingConfigService: TradingConfigService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -101,17 +102,19 @@ export class TradingSignalService implements OnModuleInit {
       const targetPrice = lastClose * Math.exp(predictedLogReturn);
       const confidence = Math.abs(predictedLogReturn);
 
+      const threshold = this.tradingConfigService.getConfig().signalThreshold;
+
       let signalType: SignalType;
-      if (predictedLogReturn > SIGNAL_THRESHOLD) {
+      if (predictedLogReturn > threshold) {
         signalType = SignalType.BUY;
-      } else if (predictedLogReturn < -SIGNAL_THRESHOLD) {
+      } else if (predictedLogReturn < -threshold) {
         signalType = SignalType.SELL;
       } else {
         signalType = SignalType.HOLD;
       }
 
       this.logger.debug(
-        `Signal for ${symbol}: ${signalType} (logReturn=${predictedLogReturn.toFixed(6)}, threshold=±${SIGNAL_THRESHOLD})`,
+        `Signal for ${symbol}: ${signalType} (logReturn=${predictedLogReturn.toFixed(6)}, threshold=±${threshold})`,
       );
 
       return TradeSignal.create(signalType, cryptoPair, targetPrice, confidence);

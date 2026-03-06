@@ -1,4 +1,4 @@
-import type { Trade, Portfolio, BacktestSession, LoadCandlesResult, CandleDatasetSummary, CandleData, Timeframe, ModelType } from '../types/index.ts';
+import type { Trade, Portfolio, BacktestSession, LoadCandlesResult, CandleDatasetSummary, CandleData, Timeframe, ModelType, TradingConfig, AvailableModel } from '../types/index.ts';
 
 const BASE = '/v1';
 
@@ -92,6 +92,8 @@ export async function runForwardTest(payload: {
   backtestSessionId: string;
   from: string;
   to: string;
+  initialCapital?: number;
+  allowInSample?: boolean;
 }): Promise<BacktestSession> {
   const res = await fetch(`${BASE}/research/forward-test`, {
     method: 'POST',
@@ -99,8 +101,9 @@ export async function runForwardTest(payload: {
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    const err = await res.json() as { message: string };
-    throw new Error(err.message ?? 'Forward test failed');
+    const err = await res.json() as { message?: string | { message?: string } };
+    const msg = typeof err.message === 'string' ? err.message : err.message?.message ?? 'Forward test failed';
+    throw new Error(msg);
   }
   return res.json() as Promise<BacktestSession>;
 }
@@ -115,6 +118,31 @@ export async function fetchSimulationWallet(): Promise<{ walletId: string | null
   const res = await fetch(`${BASE}/trading/simulation-wallet`);
   if (!res.ok) return { walletId: null };
   return res.json() as Promise<{ walletId: string | null }>;
+}
+
+export async function fetchTradingConfig(): Promise<TradingConfig> {
+  const res = await fetch(`${BASE}/trading/config`);
+  if (!res.ok) throw new Error('Failed to fetch trading config');
+  return res.json() as Promise<TradingConfig>;
+}
+
+export async function updateTradingConfig(partial: Partial<TradingConfig>): Promise<TradingConfig> {
+  const res = await fetch(`${BASE}/trading/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(partial),
+  });
+  if (!res.ok) {
+    const err = await res.json() as { message?: string };
+    throw new Error(err.message ?? 'Failed to update trading config');
+  }
+  return res.json() as Promise<TradingConfig>;
+}
+
+export async function fetchAvailableModels(): Promise<AvailableModel[]> {
+  const res = await fetch(`${BASE}/trading/available-models`);
+  if (!res.ok) throw new Error('Failed to fetch available models');
+  return res.json() as Promise<AvailableModel[]>;
 }
 
 export async function fetchCandleSummary(): Promise<CandleDatasetSummary[]> {

@@ -3,6 +3,7 @@ import { UniqueEntityId } from '../../../../shared/domain/unique-entity-id.js';
 import { BacktestStatus, Timeframe, ModelType, SessionType } from '../enums.js';
 import { BacktestMetrics } from '../value-objects/backtest-metrics.js';
 import { PredictionError } from '../value-objects/prediction-error.js';
+import type { TradingMetrics } from '../value-objects/forward-test-result.js';
 
 interface BacktestSessionProps {
   symbol: string;
@@ -19,6 +20,7 @@ interface BacktestSessionProps {
   createdAt: Date;
   completedAt?: Date;
   errorMessage?: string;
+  tradingMetrics?: TradingMetrics;
 }
 
 export class BacktestSession extends AggregateRoot<BacktestSessionProps> {
@@ -102,9 +104,14 @@ export class BacktestSession extends AggregateRoot<BacktestSessionProps> {
   get createdAt(): Date { return this.props.createdAt; }
   get completedAt(): Date | undefined { return this.props.completedAt; }
   get errorMessage(): string | undefined { return this.props.errorMessage; }
+  get tradingMetrics(): TradingMetrics | undefined { return this.props.tradingMetrics; }
 
   setModelSnapshotId(id: string): void {
     this.props.modelSnapshotId = id;
+  }
+
+  setTradingMetrics(metrics: TradingMetrics): void {
+    this.props.tradingMetrics = metrics;
   }
 
   start(): void {

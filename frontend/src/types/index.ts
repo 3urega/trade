@@ -64,6 +64,36 @@ export interface PredictionRecord {
   directionCorrect: boolean;
 }
 
+export interface SimTrade {
+  type: 'BUY' | 'SELL';
+  price: number;
+  qty: number;
+  fee: number;
+  pnl: number;
+  time: string;
+}
+
+export interface EquityPoint {
+  time: string;
+  equity: number;
+}
+
+export interface TradingMetrics {
+  initialCapital: number;
+  finalCapital: number;
+  totalPnl: number;
+  totalPnlPercent: number;
+  totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  winRate: number;
+  maxDrawdown: number;
+  maxDrawdownPercent: number;
+  sharpeRatio: number;
+  trades: SimTrade[];
+  equityCurve: EquityPoint[];
+}
+
 export interface BacktestSession {
   id: string;
   symbol: string;
@@ -81,6 +111,7 @@ export interface BacktestSession {
   completedAt?: string;
   errorMessage?: string;
   predictions?: PredictionRecord[];
+  tradingMetrics?: TradingMetrics;
 }
 
 export interface LoadCandlesResult {
@@ -106,4 +137,47 @@ export interface CandleData {
   low: number;
   close: number;
   volume: number;
+}
+
+// --- Trading Config types ---
+
+export interface TradingConfig {
+  modelSnapshotId: string;
+  signalThreshold: number;
+  positionMode: 'fixed' | 'percent';
+  fixedAmount: number;
+  positionSizePct: number;
+  activePairs: string[];
+  signalTimeframe: string;
+  pollingIntervalMs: number;
+  cooldownMs: number;
+  stopLossPct: number | null;
+  takeProfitPct: number | null;
+  maxDrawdownPct: number | null;
+}
+
+export interface ForwardTestMetrics {
+  sessionId: string;
+  from: string;
+  to: string;
+  initialCapital: number;
+  finalCapital: number;
+  totalReturn: number;
+  totalReturnPct: number;
+  totalTrades: number;
+  winRate: number;
+  sharpeRatio: number;
+  maxDrawdown: number;
+}
+
+export interface AvailableModel {
+  snapshotId: string;
+  backtestSessionId: string;
+  symbol: string;
+  timeframe: string;
+  modelType: string;
+  trainedAt: string;
+  skillScore?: number;
+  directionalAccuracy?: number;
+  forwardTests: ForwardTestMetrics[];
 }

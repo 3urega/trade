@@ -13,6 +13,8 @@ export function ForwardTestForm({ completedSessions, onCompleted, prefilledFrom,
   const [backtestSessionId, setBacktestSessionId] = useState('');
   const [from, setFrom] = useState('2024-04-01');
   const [to, setTo] = useState('2024-06-01');
+  const [initialCapital, setInitialCapital] = useState(10000);
+  const [allowInSample, setAllowInSample] = useState(false);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,6 +52,8 @@ export function ForwardTestForm({ completedSessions, onCompleted, prefilledFrom,
         backtestSessionId,
         from: new Date(from).toISOString(),
         to: new Date(to).toISOString(),
+        initialCapital,
+        allowInSample,
       });
       onCompleted(session);
     } catch (err) {
@@ -121,6 +125,27 @@ export function ForwardTestForm({ completedSessions, onCompleted, prefilledFrom,
               />
             </div>
           </div>
+
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Initial Capital (USDT)</label>
+            <input
+              type="number"
+              min={1}
+              value={initialCapital}
+              onChange={(e) => setInitialCapital(Number(e.target.value))}
+              className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-violet-500"
+            />
+          </div>
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={allowInSample}
+              onChange={(e) => setAllowInSample(e.target.checked)}
+              className="rounded bg-gray-800 border-gray-700 text-violet-500 focus:ring-violet-500"
+            />
+            <span className="text-xs text-gray-400">Permitir período de entrenamiento (in-sample)</span>
+          </label>
 
           {prefilledFrom && prefilledTo && (
             <p className="text-xs text-violet-400/70">Range filled from chart selection</p>

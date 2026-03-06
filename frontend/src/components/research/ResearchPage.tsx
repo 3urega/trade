@@ -52,6 +52,10 @@ export function ResearchPage() {
   async function handleSessionCompleted(session: BacktestSession) {
     try {
       const full = await fetchBacktest(session.id, true);
+      // Preserve tradingMetrics from the POST response if the GET doesn't include them yet
+      if (session.tradingMetrics && !full.tradingMetrics) {
+        full.tradingMetrics = session.tradingMetrics;
+      }
       setSelectedSession(full);
       setSelectedDataset(null);
       setSessions((prev) => [session, ...prev.filter((s) => s.id !== session.id)]);

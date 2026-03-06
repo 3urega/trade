@@ -6,6 +6,7 @@ import { BacktestSession } from '../../domain/entities/backtest-session.entity.j
 import { UniqueEntityId } from '../../../../shared/domain/unique-entity-id.js';
 import { BacktestStatus, Timeframe, ModelType, SessionType } from '../../domain/enums.js';
 import { BacktestMetrics } from '../../domain/value-objects/backtest-metrics.js';
+import type { TradingMetrics } from '../../domain/value-objects/forward-test-result.js';
 import { BacktestSessionOrmEntity } from './backtest-session.orm-entity.js';
 
 @Injectable()
@@ -46,13 +47,16 @@ export class BacktestTypeOrmRepository implements BacktestRepositoryPort {
     orm.createdAt = session.createdAt;
     orm.completedAt = session.completedAt ?? null;
     orm.errorMessage = session.errorMessage ?? null;
+    orm.tradingMetrics = session.tradingMetrics
+      ? (session.tradingMetrics as unknown as Record<string, unknown>)
+      : null;
     return orm;
   }
 
   private toDomain(orm: BacktestSessionOrmEntity): BacktestSession {
     const metrics = BacktestMetrics.reconstitute(orm.metrics as Record<string, number>);
 
-    return BacktestSession.reconstitute(
+    const session = BacktestSession.reconstitute(
       {
         symbol: orm.symbol,
         timeframe: orm.timeframe as Timeframe,
@@ -68,8 +72,13 @@ export class BacktestTypeOrmRepository implements BacktestRepositoryPort {
         createdAt: orm.createdAt,
         completedAt: orm.completedAt ?? undefined,
         errorMessage: orm.errorMessage ?? undefined,
+        tradingMetrics: orm.tradingMetrics
+          ? (orm.tradingMetrics as unknown as TradingMetrics)
+          : undefined,
       },
       new UniqueEntityId(orm.id),
     );
+
+    return session;
   }
 }

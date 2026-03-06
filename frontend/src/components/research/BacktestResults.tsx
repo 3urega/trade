@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createChart, CrosshairMode, LineSeries } from 'lightweight-charts';
-import type { BacktestSession } from '../../types/index.ts';
+import type { BacktestSession, TradingMetrics } from '../../types/index.ts';
 import {
   chartLocalization,
   chartLayoutOptions,
@@ -105,6 +105,141 @@ function MetricsGlossary() {
               <p className="text-[11px] text-gray-500 mt-0.5">{desc}</p>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TradingResultsSection({ metrics: tm, timeframe }: { metrics: TradingMetrics; timeframe: string }) {
+  const equityRef = useRef<HTMLDivElement>(null);
+  const equityChartRef = useRef<ReturnType<typeof createChart> | null>(null);
+  const [showTrades, setShowTrades] = useState(false);
+
+  const pnlHighlight = tm.totalPnl > 0 ? 'positive' : tm.totalPnl < 0 ? 'negative' : 'neutral';
+
+  useEffect(() => {
+    if (!equityRef.current || tm.equityCurve.length === 0) return;
+
+    equityChartRef.current = createChart(equityRef.current, {
+      layout: chartLayoutOptions,
+      localization: chartLocalization,
+      grid: chartGridOptions,
+      crosshair: { mode: CrosshairMode.Normal },
+      rightPriceScale: chartRightPriceScaleOptions,
+      timeScale: getChartTimeScaleOptions(timeframe),
+      width: equityRef.current.clientWidth,
+      height: 180,
+    });
+
+    const series = equityChartRef.current.addSeries(LineSeries, {
+      color: tm.totalPnl >= 0 ? '#4ade80' : '#f87171',
+      lineWidth: 2,
+    });
+
+    const toTime = (ts: string) =>
+      Math.floor(new Date(ts).getTime() / 1000) as unknown as import('lightweight-charts').Time;
+
+    series.setData(
+      tm.equityCurve.map((e) => ({ time: toTime(e.time), value: e.equity })),
+    );
+    equityChartRef.current.timeScale().fitContent();
+
+    const ro = new ResizeObserver(() => {
+      if (equityRef.current && equityChartRef.current) {
+        equityChartRef.current.applyOptions({ width: equityRef.current.clientWidth });
+      }
+    });
+    ro.observe(equityRef.current);
+
+    return () => {
+      ro.disconnect();
+      equityChartRef.current?.remove();
+    };
+  }, [tm]);
+
+  return (
+    <div className="space-y-3 border border-emerald-900/40 rounded-lg p-4 bg-gray-900/50">
+      <p className="text-[10px] uppercase tracking-wider text-emerald-500 font-semibold">Trading Simulation</p>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <MetricCard
+          label="P&L"
+          value={`${tm.totalPnl >= 0 ? '+' : ''}${tm.totalPnl.toFixed(2)} USDT`}
+          highlight={pnlHighlight}
+        />
+        <MetricCard
+          label="Return"
+          value={`${tm.totalPnlPercent >= 0 ? '+' : ''}${tm.totalPnlPercent.toFixed(2)}%`}
+          highlight={pnlHighlight}
+        />
+        <MetricCard label="Win Rate" value={`${tm.winRate.toFixed(1)}%`} />
+        <MetricCard label="Total Trades" value={String(tm.totalTrades)} />
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <MetricCard label="Initial Capital" value={`${tm.initialCapital.toLocaleString()} USDT`} />
+        <MetricCard label="Final Capital" value={`${tm.finalCapital.toFixed(2)} USDT`} highlight={pnlHighlight} />
+        <MetricCard
+          label="Max Drawdown"
+          value={`${tm.maxDrawdownPercent.toFixed(2)}%`}
+          highlight={tm.maxDrawdownPercent > 10 ? 'negative' : 'neutral'}
+        />
+        <MetricCard
+          label="Sharpe (trades)"
+          value={tm.sharpeRatio.toFixed(3)}
+          highlight={skillHighlight(tm.sharpeRatio)}
+        />
+      </div>
+
+      {tm.equityCurve.length > 0 && (
+        <div>
+          <p className="text-xs text-gray-500 mb-1">Equity Curve</p>
+          <div ref={equityRef} className="w-full rounded overflow-hidden" />
+        </div>
+      )}
+
+      {tm.trades.length > 0 && (
+        <div className="border border-gray-700 rounded-lg overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowTrades((o) => !o)}
+            className="w-full flex items-center justify-between px-3 py-2 text-left text-xs text-gray-400 hover:bg-gray-800/50 transition-colors"
+          >
+            <span className="font-medium">Trade log ({tm.trades.length} trades)</span>
+            <span className="text-gray-600">{showTrades ? '▼' : '▶'}</span>
+          </button>
+          {showTrades && (
+            <div className="border-t border-gray-700 max-h-60 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-800/50 sticky top-0">
+                  <tr className="text-gray-500">
+                    <th className="px-3 py-1.5 text-left">Time</th>
+                    <th className="px-3 py-1.5 text-left">Type</th>
+                    <th className="px-3 py-1.5 text-right">Price</th>
+                    <th className="px-3 py-1.5 text-right">Qty</th>
+                    <th className="px-3 py-1.5 text-right">Fee</th>
+                    <th className="px-3 py-1.5 text-right">P&L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tm.trades.map((t, i) => (
+                    <tr key={i} className="border-t border-gray-800 text-gray-300">
+                      <td className="px-3 py-1">{new Date(t.time).toLocaleString('es-ES', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                      <td className={`px-3 py-1 font-medium ${t.type === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>
+                        {t.type}
+                      </td>
+                      <td className="px-3 py-1 text-right tabular-nums">{t.price.toFixed(2)}</td>
+                      <td className="px-3 py-1 text-right tabular-nums">{t.qty.toFixed(6)}</td>
+                      <td className="px-3 py-1 text-right tabular-nums text-gray-500">{t.fee.toFixed(4)}</td>
+                      <td className={`px-3 py-1 text-right tabular-nums ${t.pnl > 0 ? 'text-green-400' : t.pnl < 0 ? 'text-red-400' : 'text-gray-500'}`}>
+                        {t.type === 'SELL' ? `${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(4)}` : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -236,6 +371,11 @@ export function BacktestResults({ session }: Props) {
             </div>
           </div>
 
+          {/* Forward Test trading results */}
+          {isForwardTest && session.tradingMetrics && (
+            <TradingResultsSection metrics={session.tradingMetrics} timeframe={session.timeframe} />
+          )}
+
           {session.predictions && session.predictions.length > 0 && (
             <div>
               <div className="flex items-center gap-4 mb-2 text-xs text-gray-500">
@@ -250,7 +390,6 @@ export function BacktestResults({ session }: Props) {
             </div>
           )}
 
-          {/* Glosario de métricas */}
           <MetricsGlossary />
         </>
       )}

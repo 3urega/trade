@@ -10,11 +10,18 @@ import type { MlServicePort } from '../../domain/ports/ml-service.port.js';
 import { BacktestSession } from '../../domain/entities/backtest-session.entity.js';
 import { PredictionRecord } from '../../domain/entities/prediction-record.entity.js';
 import { PredictionError } from '../../domain/value-objects/prediction-error.js';
+import { TradingSimulation } from '../../domain/value-objects/forward-test-result.js';
+import type { TradingMetrics } from '../../domain/value-objects/forward-test-result.js';
 import { FeatureEngineeringService } from '../feature-engineering.service.js';
 import { RunForwardTestDto } from '../dtos/run-forward-test.dto.js';
-import { BacktestSessionResponseDto } from '../dtos/backtest-response.dto.js';
+import { ForwardTestResponseDto } from '../dtos/backtest-response.dto.js';
 import { UniqueEntityId } from '../../../../shared/domain/unique-entity-id.js';
 import { BacktestStatus } from '../../domain/enums.js';
+
+const DEFAULT_INITIAL_CAPITAL = 10000;
+const SIGNAL_THRESHOLD = 0.0005;
+const FEE_RATE = 0.001;
+const POSITION_SIZE_PCT = 0.5;
 
 @Injectable()
 export class RunForwardTestUseCase {
@@ -28,7 +35,7 @@ export class RunForwardTestUseCase {
     private readonly features: FeatureEngineeringService,
   ) {}
 
-  async execute(dto: RunForwardTestDto): Promise<BacktestSessionResponseDto> {
+  async execute(dto: RunForwardTestDto): Promise<ForwardTestResponseDto> {
     const sourceSession = await this.backtestRepo.findById(new UniqueEntityId(dto.backtestSessionId));
 
     if (!sourceSession) {
@@ -36,26 +43,23 @@ export class RunForwardTestUseCase {
     }
     if (sourceSession.status !== BacktestStatus.COMPLETED) {
       throw new BadRequestException(
-        `BacktestSession ${dto.backtestSessionId} is not COMPLETED (status: ${sourceSession.status}). ` +
-        `Only completed sessions have a saved model snapshot.`,
+        `BacktestSession ${dto.backtestSessionId} is not COMPLETED (status: ${sourceSession.status}).`,
       );
     }
     if (!sourceSession.modelSnapshotId) {
       throw new BadRequestException(
-        `BacktestSession ${dto.backtestSessionId} has no saved model snapshot. ` +
-        `Re-run the backtest to generate one.`,
+        `BacktestSession ${dto.backtestSessionId} has no saved model snapshot.`,
       );
     }
 
     const from = new Date(dto.from);
     const to = new Date(dto.to);
 
-    // Prevent evaluating on training data (data leakage)
-    if (from < sourceSession.endDate) {
+    if (!dto.allowInSample && from < sourceSession.endDate) {
       throw new BadRequestException(
         `Forward test range must start at or after the backtest training end date ` +
         `(${sourceSession.endDate.toISOString()}). ` +
-        `Using training data for evaluation would produce invalid (over-optimistic) results.`,
+        `Use allowInSample=true to simulate on the training period.`,
       );
     }
 
@@ -87,12 +91,15 @@ export class RunForwardTestUseCase {
     forwardSession.start();
     await this.backtestRepo.save(forwardSession);
 
+    let tradingMetrics: TradingMetrics | undefined;
+
     try {
-      // Load the trained model snapshot — no re-training, predict-only
       await this.mlService.loadModel(sourceSession.modelSnapshotId);
 
       const predictionRecords: PredictionRecord[] = [];
       const startIndex = minFeatureIndex;
+      const initialCapital = dto.initialCapital ?? DEFAULT_INITIAL_CAPITAL;
+      const simulation = TradingSimulation.create(initialCapital, FEE_RATE, SIGNAL_THRESHOLD, POSITION_SIZE_PCT);
 
       for (let i = startIndex; i < candles.length - 1; i++) {
         let predictedLogReturn: number;
@@ -103,11 +110,12 @@ export class RunForwardTestUseCase {
           continue;
         }
 
-        // Convert predicted log-return to price
-        const predictedPrice = candles[i].close * Math.exp(predictedLogReturn);
+        const currentPrice = candles[i].close;
+        const predictedPrice = currentPrice * Math.exp(predictedLogReturn);
         const actualPrice = candles[i + 1].close;
-        const previousClose = candles[i].close;
+        const previousClose = currentPrice;
 
+        // Model accuracy metrics (kept from original)
         const error = PredictionError.from(predictedPrice, actualPrice, previousClose, predictedLogReturn);
         forwardSession.registerPrediction(error);
 
@@ -120,7 +128,17 @@ export class RunForwardTestUseCase {
             error.directionCorrect,
           ),
         );
+
+        // Trading simulation
+        simulation.processTick(predictedLogReturn, currentPrice, candles[i].openTime);
       }
+
+      // Close any open position at the last candle price
+      const lastPrice = candles[candles.length - 1].close;
+      simulation.closeOpenPosition(lastPrice, candles[candles.length - 1].openTime);
+
+      tradingMetrics = simulation.getMetrics();
+      forwardSession.setTradingMetrics(tradingMetrics);
 
       await this.predictionRepo.saveBatch(predictionRecords);
       forwardSession.complete();
@@ -131,7 +149,8 @@ export class RunForwardTestUseCase {
         `${forwardSession.metrics.totalPredictions} predictions, ` +
         `MAE=${forwardSession.metrics.mae.toFixed(4)}, ` +
         `DirAcc=${forwardSession.metrics.directionalAccuracy.toFixed(1)}%, ` +
-        `source=${dto.backtestSessionId}`,
+        `P&L=${tradingMetrics.totalPnl.toFixed(2)} USDT (${tradingMetrics.totalPnlPercent.toFixed(2)}%), ` +
+        `Trades=${tradingMetrics.totalTrades}, WinRate=${tradingMetrics.winRate.toFixed(1)}%`,
       );
     } catch (err) {
       forwardSession.fail(String(err));
@@ -140,6 +159,6 @@ export class RunForwardTestUseCase {
       throw err;
     }
 
-    return BacktestSessionResponseDto.fromDomain(forwardSession);
+    return ForwardTestResponseDto.fromDomain(forwardSession, tradingMetrics);
   }
 }

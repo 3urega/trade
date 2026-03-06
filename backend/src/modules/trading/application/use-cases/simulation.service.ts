@@ -6,35 +6,36 @@ import { MARKET_DATA_PORT } from '../../domain/ports/market-data.port.js';
 import { ExecuteTradeUseCase } from './execute-trade.use-case.js';
 import { GetPortfolioUseCase } from './get-portfolio.use-case.js';
 import { TradingSignalService } from './trading-signal.service.js';
+import { TradingConfigService } from './trading-config.service.js';
 import { TradeType } from '../../domain/enums.js';
 import { Wallet } from '../../domain/entities/wallet.entity.js';
 import { CryptoPair } from '../../domain/value-objects/crypto-pair.js';
 import { TradingGateway } from '../../infrastructure/ws/trading.gateway.js';
 import { Timeframe } from '../../../research/domain/enums.js';
 
-const SIMULATED_PAIRS = [
-  { base: 'BTC', quote: 'USDT' },
-  { base: 'ETH', quote: 'USDT' },
-  { base: 'SOL', quote: 'USDT' },
-];
-
-const SIMULATION_INTERVAL_MS = 5000;
 const SIMULATION_WALLET_OWNER = 'simulation-bot';
 
-// Fixed trade amount per signal; adjust as needed
-const FIXED_TRADE_AMOUNT = 0.001;
+interface PositionState {
+  hasPosition: boolean;
+  entryPrice: number;
+  lastTradeAt: number;
+}
 
 @Injectable()
 export class SimulationService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SimulationService.name);
   private intervalHandle: NodeJS.Timeout | null = null;
   private walletId: string | null = null;
+  private readonly positions = new Map<string, PositionState>();
+  private peakPortfolioValue: number | null = null;
+  private tradingPaused = false;
 
   constructor(
     private readonly executeTradeUseCase: ExecuteTradeUseCase,
     private readonly getPortfolioUseCase: GetPortfolioUseCase,
     private readonly gateway: TradingGateway,
     private readonly tradingSignalService: TradingSignalService,
+    private readonly tradingConfigService: TradingConfigService,
     @Inject(WALLET_REPOSITORY) private readonly walletRepo: WalletRepositoryPort,
     @Inject(MARKET_DATA_PORT) private readonly marketData: MarketDataPort,
   ) {}
@@ -47,6 +48,20 @@ export class SimulationService implements OnModuleInit, OnModuleDestroy {
     await this.ensureSimulationWallet();
     this.subscribeLivePrices();
     this.start();
+
+    // React to config changes
+    this.tradingConfigService.onChange((cfg) => {
+      this.logger.log('Config changed, restarting simulation interval...');
+      this.stop();
+      this.subscribeLivePrices();
+      this.start();
+      // If modelSnapshotId changed, reload the model
+      if (cfg.modelSnapshotId !== 'latest') {
+        void this.tradingSignalService.loadModel(cfg.modelSnapshotId);
+      } else {
+        void this.tradingSignalService.tryLoadLatestModel();
+      }
+    });
   }
 
   onModuleDestroy(): void {
@@ -66,12 +81,18 @@ export class SimulationService implements OnModuleInit, OnModuleDestroy {
 
   start(): void {
     if (this.intervalHandle) return;
-    this.logger.log(`Starting ML-driven simulation every ${SIMULATION_INTERVAL_MS}ms`);
-    this.intervalHandle = setInterval(() => void this.runSimulationTick(), SIMULATION_INTERVAL_MS);
+    const cfg = this.tradingConfigService.getConfig();
+    this.logger.log(`Starting ML-driven simulation every ${cfg.pollingIntervalMs}ms`);
+    this.intervalHandle = setInterval(() => void this.runSimulationTick(), cfg.pollingIntervalMs);
   }
 
   private subscribeLivePrices(): void {
-    for (const pair of SIMULATED_PAIRS) {
+    const cfg = this.tradingConfigService.getConfig();
+    const pairs = cfg.activePairs.map((p) => {
+      const [base, quote] = p.split('/');
+      return { base: base!, quote: quote! };
+    });
+    for (const pair of pairs) {
       const cryptoPair = CryptoPair.create(pair.base, pair.quote);
       this.marketData.subscribeToPrice(cryptoPair, (price) => {
         this.gateway.emitPriceUpdate(price.pair.toSymbol(), price.value, new Date());
@@ -96,7 +117,37 @@ export class SimulationService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    for (const pair of SIMULATED_PAIRS) {
+    const cfg = this.tradingConfigService.getConfig();
+
+    // Check max drawdown pause
+    if (cfg.maxDrawdownPct !== null && this.peakPortfolioValue !== null) {
+      try {
+        const portfolio = await this.getPortfolioUseCase.execute(this.walletId);
+        const totalValue = portfolio.totalValueUsdt;
+        if (totalValue > this.peakPortfolioValue) {
+          this.peakPortfolioValue = totalValue;
+          this.tradingPaused = false;
+        }
+        const drawdown = (this.peakPortfolioValue - totalValue) / this.peakPortfolioValue;
+        if (drawdown >= cfg.maxDrawdownPct) {
+          if (!this.tradingPaused) {
+            this.logger.warn(`Max drawdown ${(drawdown * 100).toFixed(2)}% reached — trading paused`);
+            this.tradingPaused = true;
+          }
+          return;
+        }
+        this.tradingPaused = false;
+      } catch {
+        // Portfolio fetch failed, continue
+      }
+    }
+
+    const pairs = cfg.activePairs.map((p) => {
+      const [base, quote] = p.split('/');
+      return { base: base!, quote: quote! };
+    });
+
+    for (const pair of pairs) {
       await this.processPair(pair);
     }
   }
@@ -104,46 +155,112 @@ export class SimulationService implements OnModuleInit, OnModuleDestroy {
   private async processPair(pair: { base: string; quote: string }): Promise<void> {
     if (!this.walletId) return;
 
-    // 1. Get ML signal for this pair
-    const signal = await this.tradingSignalService.getSignal(pair, Timeframe.FIVE_MINUTES);
+    const cfg = this.tradingConfigService.getConfig();
+    const pairKey = `${pair.base}${pair.quote}`;
+    const posState = this.positions.get(pairKey) ?? { hasPosition: false, entryPrice: 0, lastTradeAt: 0 };
 
-    // 2. Skip HOLD signals
-    if (signal.isHold()) return;
+    // Cooldown check
+    if (cfg.cooldownMs > 0 && Date.now() - posState.lastTradeAt < cfg.cooldownMs) return;
 
-    const type = signal.isBuy() ? TradeType.BUY : TradeType.SELL;
-
-    // 3. Fetch real price from Binance
+    // Get real price
     let price: number;
     try {
       const cryptoPair = CryptoPair.create(pair.base, pair.quote);
       const live = await this.marketData.getCurrentPrice(cryptoPair);
       price = live.value;
     } catch {
-      return; // Don't execute with a made-up price
+      return;
     }
 
-    // 4. Execute the trade
+    // Check stop-loss / take-profit on open positions
+    if (posState.hasPosition && posState.entryPrice > 0) {
+      const pricePct = (price - posState.entryPrice) / posState.entryPrice;
+
+      const shouldStopLoss = cfg.stopLossPct !== null && pricePct <= -cfg.stopLossPct;
+      const shouldTakeProfit = cfg.takeProfitPct !== null && pricePct >= cfg.takeProfitPct;
+
+      if (shouldStopLoss || shouldTakeProfit) {
+        const reason = shouldStopLoss ? 'STOP-LOSS' : 'TAKE-PROFIT';
+        this.logger.log(`${reason} triggered for ${pairKey}: entry=${posState.entryPrice.toFixed(2)} current=${price.toFixed(2)} (${(pricePct * 100).toFixed(2)}%)`);
+        await this.executeTrade(pair, TradeType.SELL, price, pairKey, posState);
+        return;
+      }
+    }
+
+    // Get timeframe from config
+    const timeframeStr = cfg.signalTimeframe;
+    const timeframe = (Object.values(Timeframe) as string[]).includes(timeframeStr)
+      ? (timeframeStr as Timeframe)
+      : Timeframe.FIVE_MINUTES;
+
+    // Get ML signal
+    const signal = await this.tradingSignalService.getSignal(pair, timeframe);
+
+    if (signal.isHold()) return;
+
+    // Only BUY when flat, only SELL when holding
+    if (signal.isBuy() && posState.hasPosition) return;
+    if (signal.isSell() && !posState.hasPosition) return;
+
+    const type = signal.isBuy() ? TradeType.BUY : TradeType.SELL;
+    await this.executeTrade(pair, type, price, pairKey, posState);
+  }
+
+  private async executeTrade(
+    pair: { base: string; quote: string },
+    type: TradeType,
+    price: number,
+    pairKey: string,
+    posState: PositionState,
+  ): Promise<void> {
+    if (!this.walletId) return;
+
+    const cfg = this.tradingConfigService.getConfig();
+
+    let amount: number;
+    if (cfg.positionMode === 'percent') {
+      try {
+        const portfolio = await this.getPortfolioUseCase.execute(this.walletId);
+        amount = (portfolio.totalValueUsdt * cfg.positionSizePct) / price;
+        amount = Math.max(amount, 0.00001);
+      } catch {
+        amount = cfg.fixedAmount;
+      }
+    } else {
+      amount = cfg.fixedAmount;
+    }
+
     try {
       const trade = await this.executeTradeUseCase.execute({
         walletId: this.walletId,
         baseCurrency: pair.base,
         quoteCurrency: pair.quote,
         type,
-        amount: FIXED_TRADE_AMOUNT,
+        amount,
         price,
       });
 
+      const newState: PositionState = {
+        hasPosition: type === TradeType.BUY,
+        entryPrice: type === TradeType.BUY ? price : 0,
+        lastTradeAt: Date.now(),
+      };
+      this.positions.set(pairKey, newState);
+
       this.logger.debug(
-        `ML signal: ${type} ${FIXED_TRADE_AMOUNT} ${pair.base}/${pair.quote} @ ${price} ` +
-        `(confidence=${signal.confidence.toFixed(6)}) -> trade ${trade.id}`,
+        `${type} ${amount.toFixed(6)} ${pair.base}/${pair.quote} @ ${price} -> trade ${trade.id}`,
       );
 
       this.gateway.emitTradeExecuted(trade);
 
       const portfolio = await this.getPortfolioUseCase.execute(this.walletId);
       this.gateway.emitPortfolioUpdate(portfolio);
+
+      // Track peak portfolio value for drawdown calculation
+      if (this.peakPortfolioValue === null || portfolio.totalValueUsdt > this.peakPortfolioValue) {
+        this.peakPortfolioValue = portfolio.totalValueUsdt;
+      }
     } catch (err) {
-      // Low balance is expected during simulation, skip silently
       this.logger.debug(`Simulation tick skipped for ${pair.base}/${pair.quote}: ${String(err)}`);
     }
   }

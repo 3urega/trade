@@ -10,6 +10,7 @@
     "dev:backend": "pnpm --filter backend run start:dev",
     "dev:frontend": "pnpm --filter frontend run dev",
     "dev": "pnpm run docker:up && concurrently \"pnpm:dev:backend\" \"pnpm:dev:frontend\"",
+    "kill:3000": "sh -c 'P=$(lsof -ti :3000 2>/dev/null); [ -n \"$P\" ] && kill -9 $P; exit 0'",
     "build:backend": "pnpm --filter backend run build",
     "build:frontend": "pnpm --filter frontend run build",
     "build": "pnpm run build:backend && pnpm run build:frontend",

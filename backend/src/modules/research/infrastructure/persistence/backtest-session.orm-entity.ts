@@ -46,4 +46,7 @@ export class BacktestSessionOrmEntity {
 
   @Column({ name: 'error_message', type: 'text', nullable: true })
   errorMessage!: string | null;
+
+  @Column({ name: 'trading_metrics', type: 'jsonb', nullable: true })
+  tradingMetrics!: Record<string, unknown> | null;
 }

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, CrosshairMode, LineSeries } from 'lightweight-charts';
 import type { Trade } from '../types/index.ts';
 import { onPriceUpdate } from '../services/socket.ts';
+import { loadPriceBuffer, savePriceBuffer } from '../services/priceCache.ts';
 import {
   chartLocalization,
   chartLayoutOptions,
@@ -30,6 +31,15 @@ export function PriceChart({ trades, symbol = 'SOL/USDT' }: Props) {
   const seriesRef = useRef<any>(null);
   const liveBufferRef = useRef<Map<number, number>>(new Map());
   const [livePrice, setLivePrice] = useState<number | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const throttledSave = useCallback((sym: string) => {
+    if (saveTimerRef.current) return;
+    saveTimerRef.current = setTimeout(() => {
+      savePriceBuffer(toWsSymbol(sym), liveBufferRef.current);
+      saveTimerRef.current = null;
+    }, 5000);
+  }, []);
 
   // Build chart once
   useEffect(() => {
@@ -64,11 +74,12 @@ export function PriceChart({ trades, symbol = 'SOL/USDT' }: Props) {
     };
   }, []);
 
-  // Seed chart with historical trade prices when symbol changes
+  // Seed chart with cached prices + historical trade prices when symbol changes
   useEffect(() => {
     if (!seriesRef.current) return;
 
-    liveBufferRef.current = new Map();
+    // Restore from sessionStorage first
+    liveBufferRef.current = loadPriceBuffer(toWsSymbol(symbol));
 
     const raw = trades
       .filter(t => t.pair === symbol)
@@ -119,12 +130,21 @@ export function PriceChart({ trades, symbol = 'SOL/USDT' }: Props) {
         .map(([time, value]) => ({ time: time as unknown as import('lightweight-charts').Time, value }));
 
       seriesRef.current.setData(sorted);
-      // Scroll to latest without resetting zoom
       chartRef.current?.timeScale().scrollToRealTime();
+
+      throttledSave(symbol);
     });
 
-    return off;
-  }, [symbol]);
+    return () => {
+      off();
+      // Save immediately on unmount/symbol change
+      savePriceBuffer(toWsSymbol(symbol), liveBufferRef.current);
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+    };
+  }, [symbol, throttledSave]);
 
   return (
     <div>
