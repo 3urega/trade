@@ -24,6 +24,8 @@ export default function App() {
   const [section, setSection] = useState<AppSection>('trading');
   const [mlModelReady, setMlModelReady] = useState<boolean | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [, setTick] = useState(0);
 
   const loadData = useCallback(async (wid: string) => {
     try {
@@ -83,18 +85,22 @@ export default function App() {
     return () => { cancelled = true; };
   }, [loadData]);
 
-  // WebSocket: connection status
+  // WebSocket: connection status + re-fetch on reconnect
   useEffect(() => {
-    const offConnect = onSocketConnect(() => setWsStatus('connected'));
+    const offConnect = onSocketConnect(() => {
+      setWsStatus('connected');
+      if (walletId) void loadData(walletId);
+    });
     const offDisconnect = onSocketDisconnect(() => setWsStatus('error'));
     return () => { offConnect(); offDisconnect(); };
-  }, []);
+  }, [walletId, loadData]);
 
   // WebSocket: new trades (solo del wallet actual)
   useEffect(() => {
     const off = onTradeExecuted((trade) => {
       if (walletId && trade.walletId === walletId) {
         setTrades(prev => [trade, ...prev].slice(0, 200));
+        setLastUpdate(new Date());
       }
     });
     return off;
@@ -105,10 +111,18 @@ export default function App() {
     const off = onPortfolioUpdate((portfolio) => {
       if (walletId && portfolio.walletId === walletId) {
         setPortfolio(portfolio);
+        setLastUpdate(new Date());
       }
     });
     return off;
   }, [walletId]);
+
+  // Polling de respaldo: re-fetch trades+portfolio cada 30s
+  useEffect(() => {
+    if (!walletId) return;
+    const id = setInterval(() => void loadData(walletId), 30_000);
+    return () => clearInterval(id);
+  }, [walletId, loadData]);
 
   // Poll ML model status every 10 seconds
   useEffect(() => {
@@ -119,6 +133,21 @@ export default function App() {
     const id = setInterval(check, 10_000);
     return () => clearInterval(id);
   }, []);
+
+  // Ticker para refrescar el label "hace Xs" cada segundo
+  useEffect(() => {
+    if (!lastUpdate) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [lastUpdate]);
+
+  const lastUpdateLabel = (() => {
+    if (!lastUpdate) return null;
+    const secs = Math.floor((Date.now() - lastUpdate.getTime()) / 1000);
+    if (secs < 5) return 'ahora';
+    if (secs < 60) return `hace ${secs}s`;
+    return `hace ${Math.floor(secs / 60)}min`;
+  })();
 
   const allTrades = [...trades].sort(
     (a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime(),
@@ -173,6 +202,9 @@ export default function App() {
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <span className={`w-2 h-2 rounded-full ${statusDot[wsStatus]}`} />
             <span>{wsStatus === 'connected' ? 'Live' : wsStatus}</span>
+            {wsStatus === 'connected' && lastUpdateLabel && (
+              <span className="text-gray-600">· {lastUpdateLabel}</span>
+            )}
           </div>
           <button
             onClick={() => setConfigOpen(true)}

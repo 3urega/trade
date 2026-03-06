@@ -1,15 +1,17 @@
 import { io, Socket } from 'socket.io-client';
 import type { Trade, Portfolio, PriceUpdate } from '../types/index.ts';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3000';
-
 let socket: Socket | null = null;
 
 export function getSocket(): Socket {
   if (!socket) {
-    socket = io(`${BACKEND_URL}/trading`, {
+    socket = io('/trading', {
       transports: ['websocket'],
       autoConnect: true,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
     });
   }
   return socket;
