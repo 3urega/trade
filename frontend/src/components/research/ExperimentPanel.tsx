@@ -14,6 +14,7 @@ const MODELS: { value: ModelType; label: string }[] = [
   { value: 'passive_aggressive', label: 'Passive Aggressive' },
   { value: 'mlp_regressor', label: 'MLP (neural network)' },
   { value: 'ensemble', label: 'Ensemble (3 models)' },
+  { value: 'sgd_classifier', label: 'SGD Classifier (volatility)' },
 ];
 
 interface Props {

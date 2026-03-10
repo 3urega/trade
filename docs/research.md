@@ -1,6 +1,6 @@
-# Pipeline de Research: Carga → Backtest → Forward Test → Experiments
+# Pipeline completo: Research → Forward Test → Trading
 
-Este documento describe **todo** lo que hace la sección de Research de la app: qué herramientas hay, qué parámetros acepta cada una, qué métricas produce y cómo interpretarlas.
+Este documento describe **todo** lo que hace la app: desde cargar datos y entrenar modelos hasta operar con ellos. Qué herramientas hay, qué parámetros acepta cada una, qué métricas produce, cómo interpretarlas, y qué puedes configurar en los presets de trading.
 
 ---
 
@@ -13,8 +13,9 @@ Este documento describe **todo** lo que hace la sección de Research de la app: 
 5. [Métricas del backtest](#5-métricas-del-backtest)
 6. [Run Forward Test](#6-run-forward-test)
 7. [Experiments (automatización)](#7-experiments-automatización)
-8. [Cómo interpretar los resultados](#8-cómo-interpretar-los-resultados)
-9. [Flujo completo (diagrama)](#9-flujo-completo-diagrama)
+8. [Trading Presets (operativa simulada)](#8-trading-presets-operativa-simulada)
+9. [Cómo interpretar los resultados](#9-cómo-interpretar-los-resultados)
+10. [Flujo completo (diagrama)](#10-flujo-completo-diagrama)
 
 ---
 
@@ -138,16 +139,54 @@ Hay 5 modelos seleccionables, todos con `partial_fit` (entrenamiento incremental
 | **Ensemble (3 modelos)** | Regresión combinada | Entrena simultáneamente SGD + Passive Aggressive + MLP. Predicción = media de los 3. Más robusto que cualquier modelo individual. | RETURN |
 | **SGD Classifier** | Clasificación | SGDClassifier con `loss="log_loss"`. Predice probabilidad de movimiento grande. Se usa con modo VOLATILITY. | VOLATILITY |
 
-### Detalles internos de cada modelo (ML Engine)
+### Hiperparámetros de cada modelo
 
-```python
-"sgd_regressor":    SGDRegressor(loss="squared_error", penalty="l2", alpha=0.0001, warm_start=True)
-"passive_aggressive": PassiveAggressiveRegressor(C=0.1, warm_start=True)
-"mlp_regressor":    MLPRegressor(hidden_layer_sizes=(64, 32), activation="relu", solver="adam", warm_start=True)
-"sgd_classifier":   SGDClassifier(loss="log_loss", penalty="l2", alpha=0.0001, warm_start=True)
-```
+Todos los modelos usan `warm_start=True`, `max_iter=1` y `random_state=42`. Con `partial_fit` se entrenan vela a vela (incremental). Un `StandardScaler` normaliza las 14 features antes de pasarlas al modelo. El Ensemble comparte un scaler propio entre sus 3 sub-modelos.
 
-Todos usan `StandardScaler` para normalizar features. El Ensemble tiene su propio scaler compartido entre los 3 sub-modelos.
+#### SGD Regressor
+
+| Hiperparámetro | Valor | Qué hace |
+|----------------|-------|----------|
+| `loss` | `squared_error` | Función de pérdida: minimiza error cuadrático (MSE). |
+| `penalty` | `l2` | Regularización L2 (ridge): penaliza coeficientes grandes para evitar overfitting. |
+| `alpha` | `0.0001` | Fuerza de la regularización. Más alto → más conservador. |
+
+**Cómo predice:** combinación lineal de features → `y = w₁·x₁ + w₂·x₂ + … + b`. Los pesos (`w`) se actualizan vela a vela con gradiente descendente estocástico.
+
+#### Passive Aggressive Regressor
+
+| Hiperparámetro | Valor | Qué hace |
+|----------------|-------|----------|
+| `C` | `0.1` | Agresividad: cuánto se ajustan los pesos en cada actualización. Más alto → reacciona más fuerte a errores. |
+
+**Cómo predice:** también lineal (`y = w·x + b`), pero con una estrategia distinta: si la predicción está dentro de un margen de tolerancia, no cambia nada (pasivo); si comete un error, ajusta agresivamente.
+
+#### MLP Regressor (red neuronal)
+
+| Hiperparámetro | Valor | Qué hace |
+|----------------|-------|----------|
+| `hidden_layer_sizes` | `(64, 32)` | Dos capas ocultas: primera con 64 neuronas, segunda con 32. |
+| `activation` | `relu` | Función de activación ReLU: captura relaciones no lineales. |
+| `solver` | `adam` | Optimizador Adam: adapta la tasa de aprendizaje automáticamente. |
+| `alpha` | `0.001` | Regularización L2 para evitar overfitting. |
+| `learning_rate` | `adaptive` | Reduce la tasa si el entrenamiento deja de mejorar. |
+| `learning_rate_init` | `0.001` | Tasa de aprendizaje inicial. |
+
+**Cómo predice:** pasa las features por dos capas de neuronas con transformaciones no lineales. Puede capturar interacciones complejas entre features que los modelos lineales no ven.
+
+#### SGD Classifier (volatilidad)
+
+| Hiperparámetro | Valor | Qué hace |
+|----------------|-------|----------|
+| `loss` | `log_loss` | Regresión logística: habilita `predict_proba()` para obtener probabilidades. |
+| `penalty` | `l2` | Regularización L2. |
+| `alpha` | `0.0001` | Fuerza de regularización. |
+
+**Cómo predice:** calcula la probabilidad de que la próxima vela tenga un movimiento grande (clase 1) vs pequeño (clase 0). Es un clasificador binario lineal.
+
+#### Ensemble (3 modelos)
+
+No tiene hiperparámetros propios: combina SGD Regressor + Passive Aggressive + MLP. Cada uno entrena en paralelo con las mismas features. La predicción final es la **media de las 3 predicciones individuales**. Reduce la varianza y es más robusto que cualquier modelo solo.
 
 ---
 
@@ -324,7 +363,96 @@ Los **Experiments** permiten definir una configuración fija (symbol, timeframe,
 
 ---
 
-## 8. Cómo interpretar los resultados
+## 8. Trading Presets (operativa simulada)
+
+### Qué es un Preset
+
+Un **preset** es una configuración completa de trading que combina un modelo entrenado con reglas de operativa (cuándo operar, cuánto invertir, cuándo cortar pérdidas). Cada preset tiene su propia wallet virtual y funciona de forma independiente: puedes tener varios presets activos simultáneamente con distintas estrategias.
+
+### Estados de un Preset
+
+| Estado | Descripción |
+|--------|-------------|
+| `active` | El preset está operando: consulta señales, ejecuta trades |
+| `paused` | Detenido temporalmente, mantiene posiciones abiertas y estado |
+| `archived` | Desactivado permanentemente |
+
+### Parámetros configurables
+
+#### Estrategia (modelo y señal)
+
+| Parámetro | Default | Descripción |
+|-----------|---------|-------------|
+| **Model Snapshot** | `latest` | Qué modelo ML usar. `latest` usa el último snapshot guardado; también puedes seleccionar uno específico de la lista de modelos entrenados. |
+| **Signal Threshold** | `0.0005` | Retorno mínimo predicho para generar señal de BUY/SELL. Si `|predictedLogReturn| < threshold` → HOLD. Más alto = menos operaciones, más selectivas. |
+| **Signal Timeframe** | `5m` | Timeframe de las velas que se consultan para la predicción ML. Opciones: `1m`, `5m`, `15m`, `1h`. |
+
+#### Posición (cuánto invertir)
+
+| Parámetro | Default | Descripción |
+|-----------|---------|-------------|
+| **Position Mode** | `fixed` | `fixed` = cantidad fija en base currency; `percent` = porcentaje del capital disponible. |
+| **Fixed Amount** | `0.001` | Solo en modo `fixed`: cantidad de asset a comprar por trade (p. ej. 0.001 BTC). |
+| **Position Size %** | `0.5` (50%) | Solo en modo `percent`: fracción del capital disponible a invertir por señal. Rango: 0.01 – 1.0. |
+
+#### Gestión de riesgo
+
+| Parámetro | Default | Descripción |
+|-----------|---------|-------------|
+| **Stop Loss %** | `null` (desactivado) | Si el precio cae este % desde el precio de entrada → vende automáticamente. Rango: 0.1% – 100%. |
+| **Take Profit %** | `null` (desactivado) | Si el precio sube este % desde el precio de entrada → vende automáticamente. Rango: 0.1% – 1000%. |
+| **Max Drawdown %** | `null` (desactivado) | Drawdown máximo permitido sobre el capital total. Si se supera, el preset puede pausarse. Rango: 1% – 100%. |
+
+#### Operativa y pares
+
+| Parámetro | Default | Descripción |
+|-----------|---------|-------------|
+| **Active Pairs** | `BTC/USDT, ETH/USDT, SOL/USDT` | Pares en los que opera el preset. Se pueden activar/desactivar individualmente. |
+| **Polling Interval** | `5000` ms (5s) | Cada cuánto consulta precio y señal ML para cada par. Mínimo 1000 ms. |
+| **Cooldown** | `0` ms | Tiempo mínimo entre trades consecutivos para el mismo par. Evita sobre-operar en movimientos rápidos. |
+| **Initial Capital** | `10000` USDT | Capital inicial de la wallet virtual (solo al crear el preset). |
+
+### Cómo funciona un ciclo de operación
+
+```
+Cada pollingIntervalMs para cada par activo:
+  1. ¿Hay cooldown activo? → skip
+  2. Obtener precio actual vía Binance REST
+  3. Si tiene posición abierta:
+     a. ¿Precio ≤ entrada × (1 - stopLossPct)? → SELL (STOP-LOSS)
+     b. ¿Precio ≥ entrada × (1 + takeProfitPct)? → SELL (TAKE-PROFIT)
+  4. Consultar señal ML (predecir con modelo del snapshot, timeframe del preset)
+  5. Si |predictedLogReturn| < signalThreshold → HOLD
+  6. Si señal BUY y sin posición → BUY (con fixedAmount o positionSizePct)
+  7. Si señal SELL y con posición → SELL
+  8. Actualizar wallet, registrar trade, actualizar métricas
+```
+
+### Métricas del Preset (en vivo)
+
+| Métrica | Descripción |
+|---------|-------------|
+| **P&L** | Ganancia/pérdida total en USDT |
+| **P&L %** | Retorno porcentual sobre capital inicial |
+| **Total Trades** | Operaciones ejecutadas (BUY + SELL) |
+| **Win Rate** | % de round-trips (BUY → SELL) que fueron rentables |
+| **Max Drawdown** | Mayor caída observada del portfolio como fracción (0–1) |
+| **Balances** | Desglose del capital por moneda |
+
+### Diferencias entre Forward Test y Trading Preset
+
+| | Forward Test | Trading Preset |
+|---|--------------|----------------|
+| **Datos** | Históricos (velas de DB) | En vivo (precio actual de Binance) |
+| **Velocidad** | Procesa todo el rango de golpe | Tiempo real, tick a tick |
+| **Stops** | SL/TP dinámicos por volatilidad (multiplicador × vol) | SL/TP en porcentaje fijo |
+| **Position sizing** | `positionSizePct × confidence` | Fijo o % del capital (sin factor confianza) |
+| **Multi-par** | Un solo par por test | Varios pares simultáneamente |
+| **Wallet** | Virtual temporal | Virtual persistente (en DB) |
+
+---
+
+## 9. Cómo interpretar los resultados
 
 ### El problema del 50% en Dir. Accuracy
 
@@ -369,7 +497,7 @@ El backtest usa los mismos datos para entrenar y evaluar (walk-forward evita lea
 
 ---
 
-## 9. Flujo completo (diagrama)
+## 10. Flujo completo (diagrama)
 
 ```mermaid
 flowchart TD
