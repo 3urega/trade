@@ -33,7 +33,7 @@ function fmt(v: number): string {
   return v.toExponential(2);
 }
 
-function StabilityRow({ feature, sessionCount }: { feature: ModelStabilityFeature; sessionCount: number }) {
+function StabilityRow({ feature }: { feature: ModelStabilityFeature; sessionCount?: number }) {
   const light = stabilityLight(feature.stdDev, feature.mean);
   const cv = feature.mean !== 0 ? Math.abs(feature.stdDev / feature.mean) : null;
 

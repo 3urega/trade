@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { createChart, CrosshairMode, LineSeries } from 'lightweight-charts';
-import type { BacktestSession, TradingMetrics } from '../../types/index.ts';
+import type { BacktestSession, TradingMetrics, ParameterSweepResult, RollingBacktestResult } from '../../types/index.ts';
 import { SignalQualityPanel } from './SignalQualityPanel.tsx';
 import { PermutationTestPanel } from './PermutationTestResult.tsx';
 import { FeatureImportancePanel } from './FeatureImportancePanel.tsx';
 import { ModelStabilityPanel } from './ModelStabilityPanel.tsx';
+import ParameterSweepPanel from './ParameterSweepPanel.tsx';
+import TemporalConsistencyPanel from './TemporalConsistencyPanel.tsx';
 import { ResearchStepper } from './ResearchStepper.tsx';
 import {
   chartLocalization,
@@ -275,6 +277,8 @@ export function BacktestResults({ session, allSessions = [] }: Props) {
   const chartRef = useRef<ReturnType<typeof createChart> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [permutationDone, setPermutationDone] = useState(false);
+  const [sweepResult, setSweepResult] = useState<ParameterSweepResult | null>(null);
+  const [rollingResult, setRollingResult] = useState<RollingBacktestResult | null>(null);
 
   const statusColor: Record<string, string> = {
     COMPLETED: 'text-green-400',
@@ -357,7 +361,12 @@ export function BacktestResults({ session, allSessions = [] }: Props) {
       )}
 
       {session.status === 'COMPLETED' && (
-        <ResearchStepper session={session} permutationDone={permutationDone} />
+        <ResearchStepper
+          session={session}
+          permutationDone={permutationDone}
+          sweepResult={sweepResult}
+          rollingResult={rollingResult}
+        />
       )}
 
       {session.status === 'COMPLETED' && (
@@ -437,6 +446,26 @@ export function BacktestResults({ session, allSessions = [] }: Props) {
             <ModelStabilityPanel
               currentSession={session}
               availableSessions={allSessions}
+            />
+          )}
+
+          {/* Parameter Sweep Panel (Paso 4 del pipeline) */}
+          {session.status === 'COMPLETED' && session.sessionType === 'BACKTEST' && (
+            <ParameterSweepPanel
+              sessionId={session.id}
+              onCompleted={(r) => setSweepResult(r)}
+            />
+          )}
+
+          {/* Temporal Consistency Panel (Paso 5 del pipeline) */}
+          {session.status === 'COMPLETED' && session.sessionType === 'BACKTEST' && (
+            <TemporalConsistencyPanel
+              symbol={session.symbol}
+              timeframe={session.timeframe}
+              modelType={session.modelType}
+              predictionMode={session.predictionMode}
+              signalThreshold={session.signalQuality?.conditionalReturnBuy != null ? 0.0005 : undefined}
+              onCompleted={(r) => setRollingResult(r)}
             />
           )}
 

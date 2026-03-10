@@ -373,3 +373,47 @@ export interface CreateExperimentInput {
   forwardWindowDays?: number;
   initialCapital?: number;
 }
+
+// --- Ronda 3: Parameter Sweep + Rolling Backtest types ---
+
+export interface ParameterSweepMetric {
+  value: number;
+  conditionalReturnBuy: number | null;
+  conditionalReturnSell: number | null;
+  countBuy: number;
+  countSell: number;
+  sharpeRatio: number;
+}
+
+export interface ParameterSweepResult {
+  sessionId: string;
+  parameter: string;
+  values: number[];
+  metrics: ParameterSweepMetric[];
+  robustnessScore: number;
+}
+
+export interface RollingWindowResult {
+  from: string;
+  to: string;
+  sessionId: string;
+  sharpeRatio: number;
+  skillScore: number;
+  directionalAccuracy: number;
+  predictionCorrelation: number | null;
+  conditionalReturnBuy: number | null;
+}
+
+export interface RollingBacktestAggregate {
+  sharpeMean: number;
+  sharpeStdDev: number;
+  stabilityScore: number;
+  skillScoreMean: number;
+  correlationMean: number;
+  pctPositiveSharpe: number;
+}
+
+export interface RollingBacktestResult {
+  windows: RollingWindowResult[];
+  aggregate: RollingBacktestAggregate;
+}

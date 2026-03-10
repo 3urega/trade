@@ -39,7 +39,7 @@ function correlationLight(r: number | undefined): TrafficLight {
   return 'red';
 }
 
-function fmt(v: number | null, decimals = 4): string {
+function fmt(v: number | null | undefined, decimals = 4): string {
   if (v === null || v === undefined) return '—';
   return v.toFixed(decimals);
 }

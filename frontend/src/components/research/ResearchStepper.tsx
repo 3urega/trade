@@ -1,9 +1,13 @@
-import type { BacktestSession, SignalQuality } from '../../types/index.ts';
+import type { BacktestSession, SignalQuality, ParameterSweepResult, RollingBacktestResult } from '../../types/index.ts';
 
 interface Props {
   session: BacktestSession;
   /** Whether the user has run a permutation test (tracked in parent state) */
   permutationDone?: boolean;
+  /** Result from parameter sweep (Paso 4) */
+  sweepResult?: ParameterSweepResult | null;
+  /** Result from rolling backtest (Paso 5) */
+  rollingResult?: RollingBacktestResult | null;
 }
 
 type StepStatus = 'green' | 'yellow' | 'red' | 'pending' | 'locked';
@@ -72,7 +76,27 @@ function statusIcon(status: StepStatus): string {
   }
 }
 
-function buildSteps(session: BacktestSession, permutationDone: boolean): Step[] {
+function sweepStatus(result: ParameterSweepResult | null | undefined): StepStatus {
+  if (!result) return 'pending';
+  if (result.robustnessScore >= 60) return 'green';
+  if (result.robustnessScore >= 20) return 'yellow';
+  return 'red';
+}
+
+function rollingStatus(result: RollingBacktestResult | null | undefined): StepStatus {
+  if (!result) return 'pending';
+  const score = result.aggregate.stabilityScore;
+  if (score > 1) return 'green';
+  if (score >= 0.5) return 'yellow';
+  return 'red';
+}
+
+function buildSteps(
+  session: BacktestSession,
+  permutationDone: boolean,
+  sweepResult: ParameterSweepResult | null | undefined,
+  rollingResult: RollingBacktestResult | null | undefined,
+): Step[] {
   const sq = session.signalQuality;
   const r = session.predictionCorrelation;
   const fi = session.featureImportance;
@@ -112,17 +136,21 @@ function buildSteps(session: BacktestSession, permutationDone: boolean): Step[] 
       number: 4,
       label: 'Robustez',
       sublabel: '¿Rango de params?',
-      status: 'locked',
-      tooltip: 'Próximamente — Parameter sweep (Ronda 3)',
-      available: false,
+      status: sweepResult ? sweepStatus(sweepResult) : (session.status === 'COMPLETED' ? 'pending' : 'locked'),
+      tooltip: sweepResult
+        ? `Robustez: ${sweepResult.robustnessScore.toFixed(0)}% de los umbrales son rentables`
+        : 'Pulsa "Probar robustez" en el panel Paso 4',
+      available: session.status === 'COMPLETED',
     },
     {
       number: 5,
       label: 'Temporal',
       sublabel: '¿2022, 2023, 2024?',
-      status: 'locked',
-      tooltip: 'Próximamente — Rolling backtests (Ronda 3)',
-      available: false,
+      status: rollingResult ? rollingStatus(rollingResult) : (session.status === 'COMPLETED' ? 'pending' : 'locked'),
+      tooltip: rollingResult
+        ? `Estabilidad temporal: score ${rollingResult.aggregate.stabilityScore.toFixed(2)}, ${rollingResult.windows.length} ventanas`
+        : 'Pulsa "Probar consistencia temporal" en el panel Paso 5',
+      available: session.status === 'COMPLETED',
     },
     {
       number: 6,
@@ -139,19 +167,21 @@ function buildSteps(session: BacktestSession, permutationDone: boolean): Step[] 
       label: 'Decisión',
       sublabel: 'Activar / Descartar',
       status: (() => {
-        const stepStatuses = [
+        const stepStatuses: StepStatus[] = [
           signalQualityStatus(sq, r),
-          permutationDone ? ('green' as StepStatus) : ('pending' as StepStatus),
-          fi ? ('green' as StepStatus) : ('pending' as StepStatus),
+          permutationDone ? 'green' : 'pending',
+          fi ? 'green' : 'pending',
+          sweepResult ? sweepStatus(sweepResult) : 'pending',
+          rollingResult ? rollingStatus(rollingResult) : 'pending',
           forwardTestStatus(session),
         ];
         const reds = stepStatuses.filter((s) => s === 'red').length;
         const greens = stepStatuses.filter((s) => s === 'green').length;
         const hasPending = stepStatuses.some((s) => s === 'pending');
-        if (hasPending) return 'pending';
-        if (reds > 0) return 'red';
-        if (greens >= 3) return 'green';
-        return 'yellow';
+        if (hasPending) return 'pending' as StepStatus;
+        if (reds > 0) return 'red' as StepStatus;
+        if (greens >= 4) return 'green' as StepStatus;
+        return 'yellow' as StepStatus;
       })(),
       tooltip: 'Resumen de todos los pasos completados',
       available: session.status === 'COMPLETED',
@@ -182,8 +212,8 @@ function StepNode({ step }: { step: Step }) {
   );
 }
 
-export function ResearchStepper({ session, permutationDone = false }: Props) {
-  const steps = buildSteps(session, permutationDone);
+export function ResearchStepper({ session, permutationDone = false, sweepResult, rollingResult }: Props) {
+  const steps = buildSteps(session, permutationDone, sweepResult, rollingResult);
 
   const completedSteps = steps.filter((s) => s.status === 'green' || s.status === 'yellow').length;
   const availableSteps = steps.filter((s) => s.available).length;

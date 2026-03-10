@@ -4,6 +4,7 @@ import type {
   Preset, PresetMetrics, CreatePresetInput, UpdatePresetInput,
   ResearchExperiment, CreateExperimentInput, PermutationTestResult,
   FeatureImportanceResult, ModelStabilityResult,
+  ParameterSweepResult, RollingBacktestResult,
 } from '../types/index.ts';
 
 const BASE = '/v1';
@@ -324,4 +325,44 @@ export async function runPermutationTest(sessionId: string, permutations = 500):
     throw new Error(err.message ?? 'Failed to run permutation test');
   }
   return res.json() as Promise<PermutationTestResult>;
+}
+
+export async function runParameterSweep(
+  sessionId: string,
+  payload: { parameter: 'signalThreshold'; min: number; max: number; steps: number },
+): Promise<ParameterSweepResult> {
+  const res = await fetch(`${BASE}/research/backtest/${sessionId}/parameter-sweep`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json() as { message?: string };
+    throw new Error(err.message ?? 'Failed to run parameter sweep');
+  }
+  return res.json() as Promise<ParameterSweepResult>;
+}
+
+export async function runRollingBacktest(payload: {
+  symbol: string;
+  timeframe: Timeframe;
+  from: string;
+  to: string;
+  modelType: ModelType;
+  warmupPeriod?: number;
+  windowDays: number;
+  stepDays: number;
+  predictionMode?: PredictionMode;
+  signalThreshold?: number;
+}): Promise<RollingBacktestResult> {
+  const res = await fetch(`${BASE}/research/rolling-backtest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json() as { message?: string };
+    throw new Error(err.message ?? 'Failed to run rolling backtest');
+  }
+  return res.json() as Promise<RollingBacktestResult>;
 }

@@ -134,8 +134,7 @@ export function PresetPanel({ selectedPresetId, onSelectPreset }: Props) {
 
   // Reactively refresh a single preset's metrics when its state changes
   useEffect(() => {
-    return onPresetStateChange(async (change) => {
-      // Reload full list and metrics
+    return onPresetStateChange(async (_change) => {
       void loadData();
     });
   }, [loadData]);

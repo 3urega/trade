@@ -22,6 +22,8 @@ import { RunForwardTestUseCase } from '../../application/use-cases/run-forward-t
 import { RunExperimentUseCase } from '../../application/use-cases/run-experiment.use-case.js';
 import { RunPermutationTestUseCase, type PermutationTestResult } from '../../application/use-cases/run-permutation-test.use-case.js';
 import { GetFeatureImportanceUseCase } from '../../application/use-cases/get-feature-importance.use-case.js';
+import { RunParameterSweepUseCase, type ParameterSweepResult, type ParameterSweepDto } from '../../application/use-cases/run-parameter-sweep.use-case.js';
+import { RunRollingBacktestUseCase, type RollingBacktestResult, type RollingBacktestDto } from '../../application/use-cases/run-rolling-backtest.use-case.js';
 import type { FeatureImportanceResult } from '../../domain/ports/ml-service.port.js';
 
 interface ModelStabilityFeature {
@@ -82,6 +84,8 @@ export class ResearchController {
     private readonly runExperimentUseCase: RunExperimentUseCase,
     private readonly runPermutationTestUseCase: RunPermutationTestUseCase,
     private readonly getFeatureImportanceUseCase: GetFeatureImportanceUseCase,
+    private readonly runParameterSweepUseCase: RunParameterSweepUseCase,
+    private readonly runRollingBacktestUseCase: RunRollingBacktestUseCase,
     @Inject(CANDLE_REPOSITORY) private readonly candleRepo: CandleRepositoryPort,
     @Inject(EXPERIMENT_REPOSITORY) private readonly expRepo: ExperimentRepositoryPort,
   ) {}
@@ -138,6 +142,16 @@ export class ResearchController {
   @ApiResponse({ type: BacktestSessionResponseDto })
   async runBacktest(@Body() dto: RunBacktestDto): Promise<BacktestSessionResponseDto> {
     return this.runBacktestUseCase.execute(dto);
+  }
+
+  @Post('rolling-backtest')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Run N rolling backtests across a long date range',
+    description: 'Splits the range into overlapping windows and runs a full backtest (including model retraining) in each one. Returns per-window metrics and aggregate statistics (stability score, sharpe mean/stdDev, etc.).',
+  })
+  async runRollingBacktest(@Body() dto: RollingBacktestDto): Promise<RollingBacktestResult> {
+    return this.runRollingBacktestUseCase.execute(dto);
   }
 
   @Get('backtest')
@@ -220,6 +234,19 @@ export class ResearchController {
       sessionIds: validSessions.map((s) => s.id),
       features,
     };
+  }
+
+  @Post('backtest/:id/parameter-sweep')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Run a parameter sweep over signalThreshold for a completed backtest session',
+    description: 'Recalculates signal quality metrics for N values of the given parameter without re-training. Returns robustness score (% of values with positive conditional return).',
+  })
+  async runParameterSweep(
+    @Param('id') id: string,
+    @Body() dto: ParameterSweepDto,
+  ): Promise<ParameterSweepResult> {
+    return this.runParameterSweepUseCase.execute(id, dto);
   }
 
   @Post('backtest/:id/permutation-test')

@@ -26,6 +26,8 @@ import { RunForwardTestUseCase } from './application/use-cases/run-forward-test.
 import { RunExperimentUseCase } from './application/use-cases/run-experiment.use-case.js';
 import { RunPermutationTestUseCase } from './application/use-cases/run-permutation-test.use-case.js';
 import { GetFeatureImportanceUseCase } from './application/use-cases/get-feature-importance.use-case.js';
+import { RunParameterSweepUseCase } from './application/use-cases/run-parameter-sweep.use-case.js';
+import { RunRollingBacktestUseCase } from './application/use-cases/run-rolling-backtest.use-case.js';
 import { ResearchSchedulerService } from './application/research-scheduler.service.js';
 
 // Controller
@@ -67,6 +69,8 @@ import { EXPERIMENT_REPOSITORY } from './domain/ports/experiment-repository.port
     RunExperimentUseCase,
     RunPermutationTestUseCase,
     GetFeatureImportanceUseCase,
+    RunParameterSweepUseCase,
+    RunRollingBacktestUseCase,
     ResearchSchedulerService,
     { provide: EXPERIMENT_REPOSITORY, useClass: ExperimentTypeOrmRepository },
   ],
