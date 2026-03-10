@@ -127,6 +127,28 @@ class ModelInfo(BaseModel):
     saved_at: str
 
 
+class FeatureImportanceItem(BaseModel):
+    name: str
+    importance: float
+    rank: int
+
+
+class FeatureImportanceResponse(BaseModel):
+    model_type: str
+    feature_names: list[str]
+    importance: list[float]
+    items: list[FeatureImportanceItem]
+
+
+class EnsembleFeatureImportanceResponse(BaseModel):
+    model_type: str = "ensemble"
+    feature_names: list[str]
+    # Average importance across ensemble sub-models
+    importance: list[float]
+    items: list[FeatureImportanceItem]
+    per_model: dict[str, list[float]]
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -588,3 +610,93 @@ def delete_model(model_id: str):
     path.unlink()
     logger.info(f"Model deleted: {model_id}")
     return StatusResponse(status="deleted")
+
+
+# ---------------------------------------------------------------------------
+# Feature importance
+# ---------------------------------------------------------------------------
+
+def _extract_coef(m, sx: StandardScaler | None) -> list[float] | None:
+    """Extract and scale-normalize coefficients from a trained model.
+
+    For linear models: coef_ / scaler_x.scale_ gives feature importance in
+    the original feature space (so features are comparable regardless of scale).
+    For MLP: average absolute weight from input layer across all hidden neurons,
+    then multiply by input scaler std to account for feature scale.
+    """
+    if m is None:
+        return None
+
+    scale = np.array(sx.scale_) if (sx is not None and _scaler_fitted(sx)) else None
+
+    if hasattr(m, "coef_") and m.coef_ is not None:
+        coef = np.array(m.coef_).ravel()
+        if scale is not None and len(scale) == len(coef):
+            # Rescale to original feature units: larger absolute value = more important
+            coef = coef / scale
+        return coef.tolist()
+
+    if hasattr(m, "coefs_") and m.coefs_ is not None:
+        # MLP: input layer weights shape (n_features, n_hidden_1)
+        # Importance = mean absolute weight per input feature across hidden neurons
+        w0 = np.abs(m.coefs_[0])  # shape: (n_features, n_hidden)
+        importance = w0.mean(axis=1)  # average over hidden neurons
+        if scale is not None and len(scale) == len(importance):
+            importance = importance * scale  # features with larger variance matter more
+        return importance.tolist()
+
+    return None
+
+
+def _build_items(feature_names: list[str], importance: list[float]) -> list[FeatureImportanceItem]:
+    pairs = sorted(enumerate(importance), key=lambda x: abs(x[1]), reverse=True)
+    return [
+        FeatureImportanceItem(name=feature_names[i], importance=imp, rank=rank + 1)
+        for rank, (i, imp) in enumerate(pairs)
+    ]
+
+
+@app.get("/feature-importance")
+def get_feature_importance():
+    """Extract normalized feature importance from the currently loaded model."""
+
+    # Try single model first
+    if model is not None and _model_is_trained(model):
+        coef = _extract_coef(model, scaler_x)
+        if coef is None:
+            raise HTTPException(status_code=400, detail="Model does not expose coefficients yet (needs more training).")
+        if len(coef) != len(FEATURE_NAMES):
+            raise HTTPException(status_code=400, detail=f"Coefficient length mismatch: {len(coef)} vs {len(FEATURE_NAMES)} features.")
+        items = _build_items(FEATURE_NAMES, coef)
+        return FeatureImportanceResponse(
+            model_type=model_type_active or "unknown",
+            feature_names=FEATURE_NAMES,
+            importance=coef,
+            items=items,
+        )
+
+    # Try ensemble
+    if ensemble_models:
+        per_model: dict[str, list[float]] = {}
+        for name, m in ensemble_models.items():
+            if not _model_is_trained(m):
+                continue
+            coef = _extract_coef(m, ensemble_scaler_x)
+            if coef is not None and len(coef) == len(FEATURE_NAMES):
+                per_model[name] = coef
+
+        if not per_model:
+            raise HTTPException(status_code=400, detail="No ensemble sub-model has been trained yet.")
+
+        # Average importance across sub-models
+        n = len(FEATURE_NAMES)
+        avg = [sum(per_model[name][i] for name in per_model) / len(per_model) for i in range(n)]
+        items = _build_items(FEATURE_NAMES, avg)
+        return EnsembleFeatureImportanceResponse(
+            feature_names=FEATURE_NAMES,
+            importance=avg,
+            items=items,
+            per_model=per_model,
+        )
+
+    raise HTTPException(status_code=400, detail="No model loaded. Call POST /initialize and train first.")

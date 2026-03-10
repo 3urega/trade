@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { createChart, CrosshairMode, LineSeries } from 'lightweight-charts';
 import type { BacktestSession, TradingMetrics } from '../../types/index.ts';
+import { SignalQualityPanel } from './SignalQualityPanel.tsx';
+import { PermutationTestPanel } from './PermutationTestResult.tsx';
+import { FeatureImportancePanel } from './FeatureImportancePanel.tsx';
+import { ModelStabilityPanel } from './ModelStabilityPanel.tsx';
+import { ResearchStepper } from './ResearchStepper.tsx';
 import {
   chartLocalization,
   chartLayoutOptions,
@@ -11,6 +16,7 @@ import {
 
 interface Props {
   session: BacktestSession;
+  allSessions?: BacktestSession[];
 }
 
 function MetricCard({
@@ -265,9 +271,10 @@ function TradingResultsSection({ metrics: tm, timeframe }: { metrics: TradingMet
   );
 }
 
-export function BacktestResults({ session }: Props) {
+export function BacktestResults({ session, allSessions = [] }: Props) {
   const chartRef = useRef<ReturnType<typeof createChart> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [permutationDone, setPermutationDone] = useState(false);
 
   const statusColor: Record<string, string> = {
     COMPLETED: 'text-green-400',
@@ -350,6 +357,10 @@ export function BacktestResults({ session }: Props) {
       )}
 
       {session.status === 'COMPLETED' && (
+        <ResearchStepper session={session} permutationDone={permutationDone} />
+      )}
+
+      {session.status === 'COMPLETED' && (
         <>
           {/* Row 1: Core price metrics */}
           <div>
@@ -399,6 +410,35 @@ export function BacktestResults({ session }: Props) {
               />
             </div>
           </div>
+
+          {/* Signal Quality Panel (Paso 1 del pipeline) */}
+          {session.signalQuality && (
+            <SignalQualityPanel
+              signalQuality={session.signalQuality}
+              predictionCorrelation={session.predictionCorrelation}
+            />
+          )}
+
+          {/* Permutation Test Panel (Paso 2 del pipeline) */}
+          {session.status === 'COMPLETED' && (
+            <PermutationTestPanel sessionId={session.id} onCompleted={() => setPermutationDone(true)} />
+          )}
+
+          {/* Feature Importance Panel (Paso 3 del pipeline) */}
+          {session.status === 'COMPLETED' && session.modelSnapshotId && (
+            <FeatureImportancePanel
+              sessionId={session.id}
+              preloaded={session.featureImportance}
+            />
+          )}
+
+          {/* Model Stability Panel (Paso 3b — comparativa entre sesiones) */}
+          {session.status === 'COMPLETED' && session.sessionType === 'BACKTEST' && (
+            <ModelStabilityPanel
+              currentSession={session}
+              availableSessions={allSessions}
+            />
+          )}
 
           {/* Forward Test trading results */}
           {isForwardTest && session.tradingMetrics && (

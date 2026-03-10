@@ -3,6 +3,14 @@ import { ModelType } from '../enums.js';
 
 export const ML_SERVICE_PORT = Symbol('ML_SERVICE_PORT');
 
+export interface FeatureImportanceResult {
+  modelType: string;
+  featureNames: string[];
+  importance: number[];
+  items: { name: string; importance: number; rank: number }[];
+  perModel?: Record<string, number[]>;
+}
+
 export interface MlServicePort {
   initialize(modelType: ModelType): Promise<void>;
   partialTrain(x: FeatureVector, y: number): Promise<void>;
@@ -18,4 +26,6 @@ export interface MlServicePort {
 
   partialTrainClassifier(x: FeatureVector, y: number): Promise<void>;
   predictProba(x: FeatureVector): Promise<number>;
+
+  getFeatureImportance(): Promise<FeatureImportanceResult>;
 }

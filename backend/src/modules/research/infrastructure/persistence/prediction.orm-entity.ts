@@ -19,4 +19,10 @@ export class PredictionOrmEntity {
 
   @Column({ name: 'direction_correct', type: 'boolean' })
   directionCorrect!: boolean;
+
+  @Column({ name: 'predicted_return', type: 'float', nullable: true })
+  predictedReturn!: number | null;
+
+  @Column({ name: 'actual_return', type: 'float', nullable: true })
+  actualReturn!: number | null;
 }

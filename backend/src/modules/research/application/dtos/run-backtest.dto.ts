@@ -40,4 +40,10 @@ export class RunBacktestDto {
   @IsNumber()
   @Min(0)
   volatilityThreshold?: number;
+
+  @ApiPropertyOptional({ example: 0.0005, description: 'Min predicted log-return to consider a BUY/SELL signal (for conditional return calculation, default 0.0005)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  signalThreshold?: number;
 }

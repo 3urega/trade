@@ -20,6 +20,22 @@ import { RunBacktestUseCase } from '../../application/use-cases/run-backtest.use
 import { GetBacktestUseCase } from '../../application/use-cases/get-backtest.use-case.js';
 import { RunForwardTestUseCase } from '../../application/use-cases/run-forward-test.use-case.js';
 import { RunExperimentUseCase } from '../../application/use-cases/run-experiment.use-case.js';
+import { RunPermutationTestUseCase, type PermutationTestResult } from '../../application/use-cases/run-permutation-test.use-case.js';
+import { GetFeatureImportanceUseCase } from '../../application/use-cases/get-feature-importance.use-case.js';
+import type { FeatureImportanceResult } from '../../domain/ports/ml-service.port.js';
+
+interface ModelStabilityFeature {
+  name: string;
+  mean: number;
+  stdDev: number;
+  values: number[];
+}
+
+interface ModelStabilityResult {
+  sessionCount: number;
+  sessionIds: string[];
+  features: ModelStabilityFeature[];
+}
 import { LoadCandlesDto } from '../../application/dtos/load-candles.dto.js';
 import { RunBacktestDto } from '../../application/dtos/run-backtest.dto.js';
 import { RunForwardTestDto } from '../../application/dtos/run-forward-test.dto.js';
@@ -64,6 +80,8 @@ export class ResearchController {
     private readonly getBacktestUseCase: GetBacktestUseCase,
     private readonly runForwardTestUseCase: RunForwardTestUseCase,
     private readonly runExperimentUseCase: RunExperimentUseCase,
+    private readonly runPermutationTestUseCase: RunPermutationTestUseCase,
+    private readonly getFeatureImportanceUseCase: GetFeatureImportanceUseCase,
     @Inject(CANDLE_REPOSITORY) private readonly candleRepo: CandleRepositoryPort,
     @Inject(EXPERIMENT_REPOSITORY) private readonly expRepo: ExperimentRepositoryPort,
   ) {}
@@ -146,6 +164,76 @@ export class ResearchController {
     @Query('predictions') predictions?: boolean,
   ): Promise<BacktestSessionResponseDto> {
     return this.getBacktestUseCase.findById(id, predictions === true || predictions?.toString() === 'true');
+  }
+
+  @Get('backtest/:id/feature-importance')
+  @ApiOperation({
+    summary: 'Get feature importance for a backtest session',
+    description: 'Loads the model snapshot and extracts normalized feature importance (coef_ for linear models, input layer weights for MLP).',
+  })
+  async getFeatureImportance(
+    @Param('id') id: string,
+  ): Promise<FeatureImportanceResult> {
+    return this.getFeatureImportanceUseCase.execute(id);
+  }
+
+  @Get('stability')
+  @ApiOperation({
+    summary: 'Compare model stability across multiple backtest sessions',
+    description: 'Given a list of session IDs, computes mean and stdDev of feature importance across sessions. Helps detect unstable models.',
+  })
+  @ApiQuery({ name: 'sessionIds', required: true, description: 'Comma-separated list of backtest session IDs' })
+  async getModelStability(
+    @Query('sessionIds') sessionIds: string,
+  ): Promise<ModelStabilityResult> {
+    const ids = sessionIds.split(',').map((s) => s.trim()).filter(Boolean);
+    if (ids.length < 2) {
+      throw new NotFoundException('At least 2 session IDs are required for stability comparison.');
+    }
+
+    const sessions = await Promise.all(
+      ids.map((id) => this.getBacktestUseCase.findById(id, false)),
+    );
+
+    const validSessions = sessions.filter((s) => s.featureImportance != null);
+    if (validSessions.length < 2) {
+      throw new NotFoundException(
+        'Not enough sessions with feature importance data. Re-run the backtests to generate feature importance.',
+      );
+    }
+
+    const featureNames: string[] = validSessions[0].featureImportance!.featureNames;
+    const n = featureNames.length;
+
+    const allImportances: number[][] = validSessions.map((s) => s.featureImportance!.importance);
+
+    const features = featureNames.map((name, i) => {
+      const values = allImportances.map((imp) => imp[i]);
+      const mean = values.reduce((a, b) => a + b, 0) / values.length;
+      const variance = values.reduce((a, v) => a + (v - mean) ** 2, 0) / values.length;
+      const stdDev = Math.sqrt(variance);
+      return { name, mean, stdDev, values };
+    });
+
+    return {
+      sessionCount: validSessions.length,
+      sessionIds: validSessions.map((s) => s.id),
+      features,
+    };
+  }
+
+  @Post('backtest/:id/permutation-test')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Run a permutation test to validate the backtest signal against random chance',
+    description: 'Shuffles actual returns N times and recalculates correlation. Returns empirical p-value.',
+  })
+  @ApiQuery({ name: 'permutations', required: false, type: Number, description: 'Number of shuffle iterations (default 500)' })
+  async runPermutationTest(
+    @Param('id') id: string,
+    @Query('permutations') permutations?: string,
+  ): Promise<PermutationTestResult> {
+    return this.runPermutationTestUseCase.execute(id, permutations ? Number(permutations) : 500);
   }
 
   // ---------------------------------------------------------------------------

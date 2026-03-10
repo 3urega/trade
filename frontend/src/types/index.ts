@@ -71,6 +71,8 @@ export interface PredictionRecord {
   actual: number;
   absoluteError: number;
   directionCorrect: boolean;
+  predictedReturn?: number;
+  actualReturn?: number;
 }
 
 export interface SimTrade {
@@ -106,6 +108,59 @@ export interface TradingMetrics {
   equityCurve: EquityPoint[];
 }
 
+export interface CalibrationBucket {
+  bucketCenter: number;
+  avgPredicted: number;
+  avgActual: number;
+  count: number;
+}
+
+export interface SignalQuality {
+  tStat: number | null;
+  pValue: number | null;
+  conditionalReturnBuy: number | null;
+  conditionalReturnSell: number | null;
+  countBuy: number;
+  countSell: number;
+  calibration: CalibrationBucket[];
+}
+
+export interface PermutationTestResult {
+  sessionId: string;
+  n: number;
+  permutations: number;
+  realCorrelation: number;
+  permCorrelations: number[];
+  pValueCorrelation: number;
+}
+
+export interface FeatureImportanceItem {
+  name: string;
+  importance: number;
+  rank: number;
+}
+
+export interface FeatureImportanceResult {
+  modelType: string;
+  featureNames: string[];
+  importance: number[];
+  items: FeatureImportanceItem[];
+  perModel?: Record<string, number[]>;
+}
+
+export interface ModelStabilityFeature {
+  name: string;
+  mean: number;
+  stdDev: number;
+  values: number[];
+}
+
+export interface ModelStabilityResult {
+  sessionCount: number;
+  sessionIds: string[];
+  features: ModelStabilityFeature[];
+}
+
 export interface BacktestSession {
   id: string;
   symbol: string;
@@ -127,6 +182,8 @@ export interface BacktestSession {
   predictionCorrelation?: number;
   predictionMode?: PredictionMode;
   volatilityThreshold?: number;
+  signalQuality?: SignalQuality;
+  featureImportance?: FeatureImportanceResult;
 }
 
 export interface LoadCandlesResult {

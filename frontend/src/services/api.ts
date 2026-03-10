@@ -2,7 +2,8 @@ import type {
   Trade, Portfolio, BacktestSession, LoadCandlesResult, CandleDatasetSummary,
   CandleData, Timeframe, ModelType, PredictionMode, TradingConfig, AvailableModel,
   Preset, PresetMetrics, CreatePresetInput, UpdatePresetInput,
-  ResearchExperiment, CreateExperimentInput,
+  ResearchExperiment, CreateExperimentInput, PermutationTestResult,
+  FeatureImportanceResult, ModelStabilityResult,
 } from '../types/index.ts';
 
 const BASE = '/v1';
@@ -294,4 +295,33 @@ export async function runExperimentNow(id: string): Promise<ResearchExperiment> 
     throw new Error(err.message ?? 'Failed to run experiment');
   }
   return res.json() as Promise<ResearchExperiment>;
+}
+
+export async function fetchFeatureImportance(sessionId: string): Promise<FeatureImportanceResult> {
+  const res = await fetch(`${BASE}/research/backtest/${sessionId}/feature-importance`);
+  if (!res.ok) {
+    const err = await res.json() as { message?: string };
+    throw new Error(err.message ?? 'Failed to fetch feature importance');
+  }
+  return res.json() as Promise<FeatureImportanceResult>;
+}
+
+export async function fetchModelStability(sessionIds: string[]): Promise<ModelStabilityResult> {
+  const res = await fetch(`${BASE}/research/stability?sessionIds=${sessionIds.join(',')}`);
+  if (!res.ok) {
+    const err = await res.json() as { message?: string };
+    throw new Error(err.message ?? 'Failed to fetch model stability');
+  }
+  return res.json() as Promise<ModelStabilityResult>;
+}
+
+export async function runPermutationTest(sessionId: string, permutations = 500): Promise<PermutationTestResult> {
+  const res = await fetch(`${BASE}/research/backtest/${sessionId}/permutation-test?permutations=${permutations}`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const err = await res.json() as { message?: string };
+    throw new Error(err.message ?? 'Failed to run permutation test');
+  }
+  return res.json() as Promise<PermutationTestResult>;
 }

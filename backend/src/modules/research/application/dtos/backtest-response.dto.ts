@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { BacktestSession } from '../../domain/entities/backtest-session.entity.js';
+import { BacktestSession, type SignalQuality } from '../../domain/entities/backtest-session.entity.js';
 import { PredictionRecord } from '../../domain/entities/prediction-record.entity.js';
+import type { FeatureImportanceResult } from '../../domain/ports/ml-service.port.js';
 import { BacktestStatus, Timeframe, ModelType, SessionType } from '../../domain/enums.js';
 import type { TradingMetrics, SimTrade, EquityPoint } from '../../domain/value-objects/forward-test-result.js';
 
@@ -32,6 +33,8 @@ export class PredictionRecordResponseDto {
   @ApiProperty() actual!: number;
   @ApiProperty() absoluteError!: number;
   @ApiProperty() directionCorrect!: boolean;
+  @ApiPropertyOptional() predictedReturn?: number;
+  @ApiPropertyOptional() actualReturn?: number;
 }
 
 export class TradingMetricsResponseDto {
@@ -73,6 +76,8 @@ export class BacktestSessionResponseDto {
   @ApiPropertyOptional() predictionCorrelation?: number;
   @ApiPropertyOptional() predictionMode?: string;
   @ApiPropertyOptional() volatilityThreshold?: number;
+  @ApiPropertyOptional() signalQuality?: SignalQuality;
+  @ApiPropertyOptional() featureImportance?: FeatureImportanceResult;
 
   static fromDomain(
     session: BacktestSession,
@@ -114,11 +119,15 @@ export class BacktestSessionResponseDto {
         actual: p.actual,
         absoluteError: Math.abs(p.predicted - p.actual),
         directionCorrect: p.directionCorrect,
+        predictedReturn: p.predictedReturn,
+        actualReturn: p.actualReturn,
       }));
     }
     dto.predictionCorrelation = session.predictionCorrelation;
     dto.predictionMode = session.predictionMode;
     dto.volatilityThreshold = session.volatilityThreshold;
+    dto.signalQuality = session.signalQuality;
+    dto.featureImportance = session.featureImportance;
     if (session.tradingMetrics) {
       const tm = session.tradingMetrics;
       dto.tradingMetrics = {

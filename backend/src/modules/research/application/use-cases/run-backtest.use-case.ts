@@ -8,7 +8,7 @@ import type { PredictionRepositoryPort } from '../../domain/ports/prediction-rep
 import { ML_SERVICE_PORT } from '../../domain/ports/ml-service.port.js';
 import type { MlServicePort } from '../../domain/ports/ml-service.port.js';
 import { BinanceCandleAdapter } from '../../infrastructure/adapters/binance-candle.adapter.js';
-import { BacktestSession } from '../../domain/entities/backtest-session.entity.js';
+import { BacktestSession, type SignalQuality } from '../../domain/entities/backtest-session.entity.js';
 import { PredictionRecord } from '../../domain/entities/prediction-record.entity.js';
 import { PredictionError } from '../../domain/value-objects/prediction-error.js';
 import type { Candle } from '../../domain/value-objects/candle.js';
@@ -173,6 +173,9 @@ export class RunBacktestUseCase {
                 predictedPrice,
                 actualPrice,
                 error.directionCorrect,
+                undefined,
+                predictedLogReturn,
+                logReturnTarget,
               ),
             );
           } catch {
@@ -185,7 +188,9 @@ export class RunBacktestUseCase {
 
       await this.predictionRepo.saveBatch(predictionRecords);
 
-      session.setPredictionCorrelation(pearsonCorrelation(predictedReturns, actualReturns));
+      const r = pearsonCorrelation(predictedReturns, actualReturns);
+      session.setPredictionCorrelation(r);
+      session.setSignalQuality(computeSignalQuality(predictedReturns, actualReturns, r, dto.signalThreshold ?? 0.0005));
 
       try {
         const snapshotId = isEnsemble && !isVolatility
@@ -194,6 +199,13 @@ export class RunBacktestUseCase {
         session.setModelSnapshotId(snapshotId);
       } catch (snapshotErr) {
         this.logger.warn(`Could not save model snapshot: ${String(snapshotErr)}`);
+      }
+
+      try {
+        const fi = await this.mlService.getFeatureImportance();
+        session.setFeatureImportance(fi);
+      } catch (fiErr) {
+        this.logger.warn(`Could not extract feature importance: ${String(fiErr)}`);
       }
 
       session.complete();
@@ -238,4 +250,132 @@ function pearsonCorrelation(x: number[], y: number[]): number {
   const num = n * sumXY - sumX * sumY;
   const den = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
   return den === 0 ? 0 : num / den;
+}
+
+/**
+ * Approximation of the regularized incomplete beta function I_x(a,b)
+ * used to derive the p-value from the t-distribution CDF.
+ * Based on the continued fraction expansion (Numerical Recipes).
+ */
+function incompleteBeta(x: number, a: number, b: number): number {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  // Log of the beta function coefficient
+  const lbeta = (p: number, q: number): number => {
+    const logGamma = (n: number): number => {
+      // Stirling's approximation for ln(Gamma)
+      if (n < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * n)) - logGamma(1 - n);
+      let r = n;
+      let result = 0;
+      while (r < 6) { result -= Math.log(r); r++; }
+      result += (r - 0.5) * Math.log(r) - r + 0.5 * Math.log(2 * Math.PI);
+      const inv = 1 / (r * r);
+      result += (((-1 / 1680 * inv + 1 / 1260) * inv - 1 / 360) * inv + 1 / 12) / r;
+      return result;
+    };
+    return logGamma(p) + logGamma(q) - logGamma(p + q);
+  };
+  const bt = Math.exp(Math.log(x) * a + Math.log(1 - x) * b - lbeta(a, b));
+  // Continued fraction
+  const cf = (xx: number, aa: number, bb: number): number => {
+    const MAXIT = 200;
+    const EPS = 3e-7;
+    let qab = aa + bb;
+    let qap = aa + 1;
+    let qam = aa - 1;
+    let c = 1, d = 1 - qab * xx / qap;
+    if (Math.abs(d) < 1e-30) d = 1e-30;
+    d = 1 / d;
+    let h = d;
+    for (let m = 1; m <= MAXIT; m++) {
+      let m2 = 2 * m;
+      let num1 = m * (bb - m) * xx / ((qam + m2) * (aa + m2));
+      d = 1 + num1 * d;
+      if (Math.abs(d) < 1e-30) d = 1e-30;
+      c = 1 + num1 / c;
+      if (Math.abs(c) < 1e-30) c = 1e-30;
+      d = 1 / d;
+      h *= d * c;
+      let num2 = -(aa + m) * (qab + m) * xx / ((aa + m2) * (qap + m2));
+      d = 1 + num2 * d;
+      if (Math.abs(d) < 1e-30) d = 1e-30;
+      c = 1 + num2 / c;
+      if (Math.abs(c) < 1e-30) c = 1e-30;
+      d = 1 / d;
+      const del = d * c;
+      h *= del;
+      if (Math.abs(del - 1) < EPS) break;
+    }
+    return h;
+  };
+  if (x < (a + 1) / (a + b + 2)) {
+    return bt * cf(x, a, b) / a;
+  } else {
+    return 1 - bt * cf(1 - x, b, a) / b;
+  }
+}
+
+/** Two-tailed p-value from t-distribution with df degrees of freedom */
+function tDistPValue(t: number, df: number): number {
+  const x = df / (df + t * t);
+  return incompleteBeta(x, df / 2, 0.5);
+}
+
+function computeSignalQuality(
+  predictedReturns: number[],
+  actualReturns: number[],
+  r: number,
+  threshold: number,
+): SignalQuality {
+  const n = predictedReturns.length;
+
+  // t-stat and p-value from Pearson r
+  let tStat: number | null = null;
+  let pValue: number | null = null;
+  if (n >= 4 && Math.abs(r) < 1) {
+    tStat = r * Math.sqrt(n - 2) / Math.sqrt(1 - r * r);
+    pValue = tDistPValue(Math.abs(tStat), n - 2);
+  }
+
+  // Conditional returns: what does the model actually earn when it signals BUY/SELL?
+  const buyActuals: number[] = [];
+  const sellActuals: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (predictedReturns[i] > threshold) buyActuals.push(actualReturns[i]);
+    else if (predictedReturns[i] < -threshold) sellActuals.push(actualReturns[i]);
+  }
+  const mean = (arr: number[]) => arr.length === 0 ? null : arr.reduce((a, b) => a + b, 0) / arr.length;
+
+  // Calibration buckets (10 quantile-based buckets of predictedReturn)
+  const calibration: SignalQuality['calibration'] = [];
+  if (n >= 10) {
+    const sorted = [...predictedReturns].sort((a, b) => a - b);
+    const bucketCount = 10;
+    const bucketSize = Math.floor(n / bucketCount);
+    // Build index map sorted by predictedReturn
+    const sortedIdx = predictedReturns
+      .map((v, i) => ({ v, i }))
+      .sort((a, b) => a.v - b.v);
+
+    for (let b = 0; b < bucketCount; b++) {
+      const start = b * bucketSize;
+      const end = b === bucketCount - 1 ? n : start + bucketSize;
+      const slice = sortedIdx.slice(start, end);
+      if (slice.length === 0) continue;
+      const avgPredicted = slice.reduce((s, e) => s + e.v, 0) / slice.length;
+      const avgActual = slice.reduce((s, e) => s + actualReturns[e.i], 0) / slice.length;
+      const bucketCenter = (sorted[start] + sorted[Math.min(end - 1, n - 1)]) / 2;
+      calibration.push({ bucketCenter, avgPredicted, avgActual, count: slice.length });
+    }
+  }
+
+  return {
+    tStat,
+    pValue,
+    conditionalReturnBuy: mean(buyActuals),
+    conditionalReturnSell: mean(sellActuals),
+    countBuy: buyActuals.length,
+    countSell: sellActuals.length,
+    calibration,
+  };
 }

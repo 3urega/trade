@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosInstance } from 'axios';
-import type { MlServicePort } from '../../domain/ports/ml-service.port.js';
+import type { MlServicePort, FeatureImportanceResult } from '../../domain/ports/ml-service.port.js';
 import { FeatureVector } from '../../domain/value-objects/feature-vector.js';
 import { ModelType } from '../../domain/enums.js';
 
@@ -78,5 +78,22 @@ export class PythonMlAdapter implements MlServicePort {
       features: x.features,
     });
     return res.data.probability;
+  }
+
+  async getFeatureImportance(): Promise<FeatureImportanceResult> {
+    const res = await this.client.get<{
+      model_type: string;
+      feature_names: string[];
+      importance: number[];
+      items: { name: string; importance: number; rank: number }[];
+      per_model?: Record<string, number[]>;
+    }>('/feature-importance');
+    return {
+      modelType: res.data.model_type,
+      featureNames: res.data.feature_names,
+      importance: res.data.importance,
+      items: res.data.items,
+      perModel: res.data.per_model,
+    };
   }
 }

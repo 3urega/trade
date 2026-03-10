@@ -4,6 +4,24 @@ import { BacktestStatus, Timeframe, ModelType, SessionType } from '../enums.js';
 import { BacktestMetrics } from '../value-objects/backtest-metrics.js';
 import { PredictionError } from '../value-objects/prediction-error.js';
 import type { TradingMetrics } from '../value-objects/forward-test-result.js';
+import type { FeatureImportanceResult } from '../ports/ml-service.port.js';
+
+export interface CalibrationBucket {
+  bucketCenter: number;
+  avgPredicted: number;
+  avgActual: number;
+  count: number;
+}
+
+export interface SignalQuality {
+  tStat: number | null;
+  pValue: number | null;
+  conditionalReturnBuy: number | null;
+  conditionalReturnSell: number | null;
+  countBuy: number;
+  countSell: number;
+  calibration: CalibrationBucket[];
+}
 
 interface BacktestSessionProps {
   symbol: string;
@@ -24,6 +42,8 @@ interface BacktestSessionProps {
   predictionCorrelation?: number;
   predictionMode?: string;
   volatilityThreshold?: number;
+  signalQuality?: SignalQuality;
+  featureImportance?: FeatureImportanceResult;
 }
 
 export class BacktestSession extends AggregateRoot<BacktestSessionProps> {
@@ -111,6 +131,8 @@ export class BacktestSession extends AggregateRoot<BacktestSessionProps> {
   get predictionCorrelation(): number | undefined { return this.props.predictionCorrelation; }
   get predictionMode(): string | undefined { return this.props.predictionMode; }
   get volatilityThreshold(): number | undefined { return this.props.volatilityThreshold; }
+  get signalQuality(): SignalQuality | undefined { return this.props.signalQuality; }
+  get featureImportance(): FeatureImportanceResult | undefined { return this.props.featureImportance; }
 
   setModelSnapshotId(id: string): void {
     this.props.modelSnapshotId = id;
@@ -130,6 +152,14 @@ export class BacktestSession extends AggregateRoot<BacktestSessionProps> {
 
   setVolatilityThreshold(value: number): void {
     this.props.volatilityThreshold = value;
+  }
+
+  setSignalQuality(value: SignalQuality): void {
+    this.props.signalQuality = value;
+  }
+
+  setFeatureImportance(value: FeatureImportanceResult): void {
+    this.props.featureImportance = value;
   }
 
   start(): void {

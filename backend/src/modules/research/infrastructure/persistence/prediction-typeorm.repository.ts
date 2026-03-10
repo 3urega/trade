@@ -34,6 +34,8 @@ export class PredictionTypeOrmRepository implements PredictionRepositoryPort {
     orm.predicted = record.predicted;
     orm.actual = record.actual;
     orm.directionCorrect = record.directionCorrect;
+    orm.predictedReturn = record.predictedReturn ?? null;
+    orm.actualReturn = record.actualReturn ?? null;
     return orm;
   }
 
@@ -45,6 +47,8 @@ export class PredictionTypeOrmRepository implements PredictionRepositoryPort {
         predicted: Number(orm.predicted),
         actual: Number(orm.actual),
         directionCorrect: orm.directionCorrect,
+        predictedReturn: orm.predictedReturn ?? undefined,
+        actualReturn: orm.actualReturn ?? undefined,
       },
       new UniqueEntityId(orm.id),
     );

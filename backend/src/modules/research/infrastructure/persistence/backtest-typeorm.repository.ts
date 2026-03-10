@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { BacktestRepositoryPort } from '../../domain/ports/backtest-repository.port.js';
-import { BacktestSession } from '../../domain/entities/backtest-session.entity.js';
+import { BacktestSession, type SignalQuality } from '../../domain/entities/backtest-session.entity.js';
+import type { FeatureImportanceResult } from '../../domain/ports/ml-service.port.js';
 import { UniqueEntityId } from '../../../../shared/domain/unique-entity-id.js';
 import { BacktestStatus, Timeframe, ModelType, SessionType } from '../../domain/enums.js';
 import { BacktestMetrics } from '../../domain/value-objects/backtest-metrics.js';
@@ -53,6 +54,12 @@ export class BacktestTypeOrmRepository implements BacktestRepositoryPort {
     orm.predictionCorrelation = session.predictionCorrelation ?? null;
     orm.predictionMode = session.predictionMode ?? null;
     orm.volatilityThreshold = session.volatilityThreshold ?? null;
+    orm.signalQuality = session.signalQuality
+      ? (session.signalQuality as unknown as Record<string, unknown>)
+      : null;
+    orm.featureImportance = session.featureImportance
+      ? (session.featureImportance as unknown as Record<string, unknown>)
+      : null;
     return orm;
   }
 
@@ -81,6 +88,12 @@ export class BacktestTypeOrmRepository implements BacktestRepositoryPort {
         predictionCorrelation: orm.predictionCorrelation ?? undefined,
         predictionMode: orm.predictionMode ?? undefined,
         volatilityThreshold: orm.volatilityThreshold ?? undefined,
+        signalQuality: orm.signalQuality
+          ? (orm.signalQuality as unknown as SignalQuality)
+          : undefined,
+        featureImportance: orm.featureImportance
+          ? (orm.featureImportance as unknown as FeatureImportanceResult)
+          : undefined,
       },
       new UniqueEntityId(orm.id),
     );

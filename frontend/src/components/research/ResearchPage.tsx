@@ -184,7 +184,7 @@ export function ResearchPage() {
         )}
 
         {selectedSession && (
-          <BacktestResults session={selectedSession} />
+          <BacktestResults session={selectedSession} allSessions={sessions} />
         )}
       </main>
     </div>

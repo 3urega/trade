@@ -58,4 +58,10 @@ export class BacktestSessionOrmEntity {
 
   @Column({ name: 'volatility_threshold', type: 'float', nullable: true })
   volatilityThreshold!: number | null;
+
+  @Column({ name: 'signal_quality', type: 'jsonb', nullable: true })
+  signalQuality!: Record<string, unknown> | null;
+
+  @Column({ name: 'feature_importance', type: 'jsonb', nullable: true })
+  featureImportance!: Record<string, unknown> | null;
 }
